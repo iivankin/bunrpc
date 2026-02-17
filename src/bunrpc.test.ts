@@ -6,6 +6,7 @@ import {
   createProcedure,
   createRouter,
   isAppError,
+  wrapRoutes,
 } from "./index";
 import type { StandardSchemaV1 } from "./types";
 
@@ -118,6 +119,40 @@ describe("bunrpc", () => {
       const rpc = createBunRPCRoutes({ items: router }, { prefix: "/rpc" });
 
       expect(rpc.routes).toHaveProperty("/rpc/items/list");
+    });
+  });
+
+  describe("wrapRoutes", () => {
+    test("formats internal server error response", async () => {
+      const wrapped = wrapRoutes(
+        {
+          "/api/test": async () => {
+            throw new Error("sensitive details");
+          },
+        },
+        {
+          formatInternalServerError: (_error, event) => ({
+            message: "Something went wrong",
+            details: { requestPath: event.path },
+          }),
+        }
+      );
+
+      const req = new Request("http://localhost/api/test", {
+        method: "POST",
+      }) as BunRequest<string>;
+
+      const response = await wrapped["/api/test"]!(req, {} as never);
+      const payload = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(payload).toEqual({
+        source: "system",
+        code: "INTERNAL_SERVER_ERROR",
+        status: 500,
+        message: "Something went wrong",
+        details: { requestPath: "/api/test" },
+      });
     });
   });
 

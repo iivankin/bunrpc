@@ -8,7 +8,6 @@
   "exports": {
     ".": "./index.ts",
     "./client": "./src/client.ts",
-    "./http-error": "./src/http-error.ts",
     "./standard-schema": "./src/standard-schema.ts",
     "./server": "./src/server.ts",
     "./react": "./src/react.ts",

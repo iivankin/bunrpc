@@ -1,9 +1,9 @@
-interface HttpErrorOptions {
+interface BunRpcHttpErrorOptions {
   source?: "app" | "system";
   code?: string;
 }
 
-interface HttpErrorPayload {
+interface BunRpcHttpErrorPayload {
   source: "app" | "system";
   code: string;
   status: number;
@@ -11,7 +11,7 @@ interface HttpErrorPayload {
   details?: unknown;
 }
 
-export class HttpError extends Error {
+export class BunRpcHttpError extends Error {
   status: number;
   details?: unknown;
   code: string;
@@ -21,17 +21,18 @@ export class HttpError extends Error {
     status: number,
     message: string,
     details?: unknown,
-    options: HttpErrorOptions = {}
+    options: BunRpcHttpErrorOptions = {}
   ) {
     super(message);
-    this.name = "HttpError";
+    this.name = "BunRpcHttpError";
     this.status = status;
     this.details = details;
     this.source = options.source ?? "system";
-    this.code = options.code ?? (this.source === "app" ? "APP_ERROR" : "HTTP_ERROR");
+    this.code =
+      options.code ?? (this.source === "app" ? "APP_ERROR" : "HTTP_ERROR");
   }
 
-  toJSON(): HttpErrorPayload {
+  toJSON(): BunRpcHttpErrorPayload {
     return this.details === undefined
       ? {
           source: this.source,

@@ -107,6 +107,31 @@ Bun.serve({
 export type AppRouter = typeof rpc._router;
 ```
 
+`wrapRoutes()` does not log by default. You can attach your own logger:
+
+```ts
+const routes = wrapRoutes(rpc.routes, {
+  onRequest: (event) => {
+    // Send to your logger/metrics system
+    // event.req is available for headers/IP/user-agent
+    console.log(event);
+  },
+  onUnexpectedError: (error, event) => {
+    // Send to Sentry/Bugsnag/etc.
+    console.error("Unexpected RPC error", event, error);
+  },
+  formatInternalServerError: (_error, event) => {
+    // Return a sanitized payload for 500 responses
+    return {
+      message: "Unexpected server error",
+      details: {
+        requestPath: event.path,
+      },
+    };
+  },
+});
+```
+
 ### 2) Use safe client API
 
 ```ts
@@ -178,7 +203,7 @@ Common system codes:
 - `createProcedure()` - middleware/procedure builder
 - `createRouter()` - group procedures in a nested router
 - `createBunRPCRoutes()` - generate `Bun.serve()` route handlers
-- `wrapRoutes()` - logging + top-level error handling wrapper
+- `wrapRoutes()` - top-level error handling wrapper with optional logging hooks
 - `createClient()` - safe RPC client returning `RpcResult`
 - `isAppError(result)` - type guard for app errors in safe results
 - `createQueryClient()` (`bunrpc/react`) - React Query integration

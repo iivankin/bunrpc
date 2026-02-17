@@ -1,5 +1,5 @@
 import type { BunRequest, Server } from "bun";
-import { HttpError } from "./http-error";
+import { BunRpcHttpError } from "./bunrpc-http-error";
 import type { StandardSchemaV1 } from "./standard-schema";
 import {
   createProcedureErrorResult,
@@ -278,9 +278,14 @@ export function createBunRPCRoutes<T extends Router>(
       server: Server<unknown>
     ) => {
       if (req.method !== "POST") {
-        throw new HttpError(405, "Method not allowed, use POST", undefined, {
+        throw new BunRpcHttpError(
+          405,
+          "Method not allowed, use POST",
+          undefined,
+          {
           code: "METHOD_NOT_ALLOWED",
-        });
+          }
+        );
       }
 
       const helpers = createProcedureHelpers();
@@ -308,7 +313,7 @@ export function createBunRPCRoutes<T extends Router>(
         try {
           rawBody = await req.json();
         } catch {
-          throw new HttpError(400, "Invalid JSON body", undefined, {
+          throw new BunRpcHttpError(400, "Invalid JSON body", undefined, {
             code: "INVALID_JSON",
           });
         }
@@ -321,7 +326,7 @@ export function createBunRPCRoutes<T extends Router>(
             path: formatIssuePath(issue.path),
             message: issue.message,
           }));
-          throw new HttpError(400, "Validation failed", { issues }, {
+          throw new BunRpcHttpError(400, "Validation failed", { issues }, {
             code: "VALIDATION_ERROR",
           });
         }
@@ -346,53 +351,42 @@ export function createBunRPCRoutes<T extends Router>(
 }
 
 // ============================================================================
-// Wrap helper for error handling and logging
+// Wrap helper for error handling (with optional client-defined logging hooks)
 // ============================================================================
 
-const colors = {
-  reset: "\x1b[0m",
-  dim: "\x1b[2m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  red: "\x1b[31m",
-  cyan: "\x1b[36m",
-};
-
-function getStatusColor(status: number): string {
-  if (status >= 500) return colors.red;
-  if (status >= 400) return colors.yellow;
-  return colors.green;
+export interface WrapRoutesEvent {
+  req: BunRequest<string>;
+  method: string;
+  path: string;
+  status: number;
+  duration: number;
+  error?: string;
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-}
+export interface WrapRoutesOptions {
+  /**
+   * Called after each request (both success and handled error responses).
+   * Useful for custom logging/metrics.
+   */
+  onRequest?: (event: WrapRoutesEvent) => void;
 
-function log(
-  method: string,
-  path: string,
-  status: number,
-  duration: number,
-  error?: string
-) {
-  const timestamp = new Date().toISOString().slice(11, 23);
-  const statusColor = getStatusColor(status);
-  const durationStr = formatDuration(duration);
+  /**
+   * Called when an unexpected (non-BunRpcHttpError) exception happens.
+   * Useful for error reporting tools.
+   */
+  onUnexpectedError?: (error: unknown, event: WrapRoutesEvent) => void;
 
-  const line = [
-    `${colors.dim}${timestamp}${colors.reset}`,
-    `${colors.cyan}${method.padEnd(6)}${colors.reset}`,
-    path,
-    `${statusColor}${status}${colors.reset}`,
-    `${colors.dim}${durationStr}${colors.reset}`,
-  ].join(" ");
-
-  console.log(line);
-
-  if (error) {
-    console.log(`${colors.dim}  └─${colors.reset} ${error}`);
-  }
+  /**
+   * Formats response payload for unexpected internal errors.
+   * Use this to avoid leaking implementation details to clients.
+   */
+  formatInternalServerError?: (
+    error: unknown,
+    event: WrapRoutesEvent
+  ) => {
+    message?: string;
+    details?: unknown;
+  };
 }
 
 type RouteHandler = (
@@ -404,8 +398,10 @@ type RouteHandler = (
  * Wrap RPC routes with error handling and logging
  */
 export function wrapRoutes(
-  routes: Record<string, RouteHandler>
+  routes: Record<string, RouteHandler>,
+  options: WrapRoutesOptions = {}
 ): Record<string, RouteHandler> {
+  const { onRequest, onUnexpectedError, formatInternalServerError } = options;
   const wrapped: Record<string, RouteHandler> = {};
 
   for (const [path, handler] of Object.entries(routes)) {
@@ -418,32 +414,48 @@ export function wrapRoutes(
 
       try {
         const result = await handler(req, server);
-        log(req.method, url.pathname, result.status, Date.now() - start);
+        onRequest?.({
+          req,
+          method: req.method,
+          path: url.pathname,
+          status: result.status,
+          duration: Date.now() - start,
+        });
         return result;
       } catch (error) {
         const duration = Date.now() - start;
 
-        if (error instanceof HttpError) {
-          log(
-            req.method,
-            url.pathname,
-            error.status,
+        if (error instanceof BunRpcHttpError) {
+          onRequest?.({
+            req,
+            method: req.method,
+            path: url.pathname,
+            status: error.status,
             duration,
-            error.formatForLog()
-          );
-          if (error.status >= 500) {
-            console.error(error.stack);
-          }
+            error: error.formatForLog(),
+          });
           return Response.json(error.toJSON(), { status: error.status });
         }
 
-        log(req.method, url.pathname, 500, duration, String(error));
-        console.error(error);
+        const event: WrapRoutesEvent = {
+          req,
+          method: req.method,
+          path: url.pathname,
+          status: 500,
+          duration,
+          error: String(error),
+        };
+
+        onRequest?.(event);
+        onUnexpectedError?.(error, event);
+
+        const formatted = formatInternalServerError?.(error, event);
 
         const payload = createSystemError(
           "INTERNAL_SERVER_ERROR",
           500,
-          "Internal Server Error"
+          formatted?.message ?? "Internal Server Error",
+          formatted?.details
         );
 
         return Response.json(payload, { status: 500 });
