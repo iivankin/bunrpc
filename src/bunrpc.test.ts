@@ -6,9 +6,28 @@ import {
   createProcedure,
   createRouter,
   isAppError,
-  wrapRoutes,
 } from "./index";
-import type { StandardSchemaV1 } from "./types";
+import {
+  createProcedureErrorResult,
+  type InferClient,
+  type ProcedureAppError,
+  type ProcedureClientError,
+  type StandardSchemaV1,
+} from "./types";
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
+  T extends B ? 1 : 2
+  ? true
+  : false;
+type Expect<T extends true> = T;
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+const directError = createProcedureErrorResult({
+  code: "DIRECT_CODE",
+  status: 400,
+});
+type DirectCode = typeof directError.error.code;
+const assertDirectCode: Expect<Equal<DirectCode, "DIRECT_CODE">> = true;
 
 function createSingleStringFieldSchema<TKey extends string>(
   key: TKey
@@ -65,17 +84,117 @@ describe("bunrpc", () => {
     });
 
     test("supports middleware and handler error helpers", async () => {
-      const authProcedure = createProcedure().use(({ error }) => {
-        return error({
+      const authProcedure = createProcedure().use(async ({ error, next }) => {
+        const unauthorized = error({
           code: "UNAUTHORIZED",
           status: 401,
           message: "Unauthorized",
         });
+
+        type LocalCode = typeof unauthorized.error.code;
+        const assertLocalCode: Expect<Equal<LocalCode, "UNAUTHORIZED">> = true;
+        expect(assertLocalCode).toBe(true);
+
+        if (Math.random() < 0) {
+          return next({ userId: "never" });
+        }
+
+        return unauthorized;
       });
+
+      const meProcedure = authProcedure.handler(({ userId }) => ({ id: userId }));
+
+      type MeCode = typeof meProcedure._error extends { code: infer TCode }
+        ? TCode
+        : never;
+      const assertMeCode: Expect<Equal<MeCode, "UNAUTHORIZED">> = true;
+      expect(assertMeCode).toBe(true);
+
+      type MeProcedureApp = ProcedureAppError<typeof meProcedure>;
+      type MeProcedureAppCode = MeProcedureApp extends { code: infer TCode }
+        ? TCode
+        : never;
+      const assertMeProcedureAppCode: Expect<
+        Equal<MeProcedureAppCode, "UNAUTHORIZED">
+      > = true;
+      expect(assertMeProcedureAppCode).toBe(true);
+
+      type MeProcedureClientError = ProcedureClientError<typeof meProcedure>;
+      type MeProcedureClientAppCode = Extract<
+        MeProcedureClientError,
+        { source: "app" }
+      > extends { code: infer TCode }
+        ? TCode
+        : never;
+      const assertMeProcedureClientAppCode: Expect<
+        Equal<MeProcedureClientAppCode, "UNAUTHORIZED">
+      > = true;
+      expect(assertMeProcedureClientAppCode).toBe(true);
+
+      const typedClient = createClient<{
+        user: {
+          me: typeof meProcedure;
+        };
+      }>();
+
+      type DirectClient = InferClient<{
+        user: {
+          me: typeof meProcedure;
+        };
+      }>;
+      type DirectMeMethodAny = IsAny<DirectClient["user"]["me"]>;
+      const assertDirectMeMethodNotAny: Expect<Equal<DirectMeMethodAny, false>> =
+        true;
+      expect(assertDirectMeMethodNotAny).toBe(true);
+      type DirectClientResult = Awaited<ReturnType<DirectClient["user"]["me"]>>;
+      type DirectClientError = Extract<DirectClientResult, { ok: false }>['error'];
+      type DirectClientErrorExpected = ProcedureClientError<typeof meProcedure>;
+      const assertDirectClientErrorShape: Expect<
+        Equal<DirectClientError, DirectClientErrorExpected>
+      > = true;
+      expect(assertDirectClientErrorShape).toBe(true);
+      type DirectClientAppCode = Extract<
+        DirectClientError,
+        { source: "app"; code: unknown }
+      >["code"];
+      const assertDirectClientAppCode: Expect<
+        Equal<DirectClientAppCode, "UNAUTHORIZED">
+      > = true;
+      expect(assertDirectClientAppCode).toBe(true);
+
+      type MeClientResult = Awaited<ReturnType<typeof typedClient.user.me>>;
+      type MeClientError = Extract<MeClientResult, { ok: false }>['error'];
+      type MeClientAppCode = Extract<
+        MeClientError,
+        { source: "app"; code: unknown }
+      >["code"];
+      const assertClientAppCode: Expect<
+        Equal<MeClientAppCode, "UNAUTHORIZED">
+      > = true;
+      expect(assertClientAppCode).toBe(true);
+
+      const assertControlFlowNarrowing = (
+        result: MeClientResult
+      ): "UNAUTHORIZED" | null => {
+        if (!result.ok && result.error.source === "app") {
+          const code: "UNAUTHORIZED" = result.error.code;
+          return code;
+        }
+
+        return null;
+      };
+      expect(assertControlFlowNarrowing({
+        ok: false,
+        error: {
+          source: "app",
+          code: "UNAUTHORIZED",
+          status: 401,
+        },
+      })).toBe("UNAUTHORIZED");
 
       const rpc = createBunRPCRoutes({
         user: createRouter({
-          me: authProcedure.handler(() => ({ id: "1" })),
+          me: meProcedure,
         }),
       });
 
@@ -93,6 +212,55 @@ describe("bunrpc", () => {
         status: 401,
         message: "Unauthorized",
       });
+    });
+
+    test("passes middleware context via next()", async () => {
+      const authProcedure = createProcedure().use(async ({ next }) => {
+        return next({ userId: "user_1" });
+      });
+
+      const rpc = createBunRPCRoutes({
+        user: createRouter({
+          me: authProcedure.handler(({ userId }) => ({ userId })),
+        }),
+      });
+
+      const req = new Request("http://localhost/api/user/me", {
+        method: "POST",
+      }) as BunRequest<string>;
+
+      const response = await rpc.routes["/api/user/me"]!(req, {} as never);
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toEqual({ userId: "user_1" });
+    });
+
+    test("supports middleware next() timing pattern", async () => {
+      const events: string[] = [];
+
+      const publicProcedure = createProcedure();
+      const loggedProcedure = publicProcedure.use(async (opts) => {
+        const result = await opts.next();
+
+        events.push(`${opts.path}:${opts.type}:${result.ok ? "ok" : "error"}`);
+        return result;
+      });
+
+      const rpc = createBunRPCRoutes({
+        ping: loggedProcedure.handler(() => ({ ok: true })),
+      });
+
+      const req = new Request("http://localhost/api/ping", {
+        method: "POST",
+      }) as BunRequest<string>;
+
+      const response = await rpc.routes["/api/ping"]!(req, {} as never);
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toEqual({ ok: true });
+      expect(events).toEqual(["/api/ping:rpc:ok"]);
     });
   });
 
@@ -122,13 +290,13 @@ describe("bunrpc", () => {
     });
   });
 
-  describe("wrapRoutes", () => {
+  describe("createBunRPCRoutes internal error formatter", () => {
     test("formats internal server error response", async () => {
-      const wrapped = wrapRoutes(
+      const rpc = createBunRPCRoutes(
         {
-          "/api/test": async () => {
+          test: createProcedure().handler(() => {
             throw new Error("sensitive details");
-          },
+          }),
         },
         {
           formatInternalServerError: (_error, event) => ({
@@ -142,7 +310,7 @@ describe("bunrpc", () => {
         method: "POST",
       }) as BunRequest<string>;
 
-      const response = await wrapped["/api/test"]!(req, {} as never);
+      const response = await rpc.routes["/api/test"]!(req, {} as never);
       const payload = await response.json();
 
       expect(response.status).toBe(500);

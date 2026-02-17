@@ -56,13 +56,34 @@ import {
   createBunRPCRoutes,
   createProcedure,
   createRouter,
-  wrapRoutes,
 } from "bunrpc";
 import { CreateChatSchema } from "./schemas";
 
 const publicProcedure = createProcedure();
 
-const authProcedure = publicProcedure.use(({ req, error }) => {
+const loggedProcedure = publicProcedure.use(async (opts) => {
+  const start = Date.now();
+  const result = await opts.next();
+  const durationMs = Date.now() - start;
+
+  const meta = {
+    path: opts.path,
+    type: opts.type,
+    durationMs,
+  };
+
+  result.ok
+    ? console.log("OK request timing:", meta)
+    : console.error("Non-OK request timing:", meta);
+
+  return result;
+});
+
+// Middleware contract is strict:
+// - return opts.next(...) to continue
+// - or return error({...}) to stop with app error
+
+const authProcedure = loggedProcedure.use(async ({ req, error, next }) => {
   const token = req.headers.get("authorization");
   if (!token) {
     return error({
@@ -72,7 +93,7 @@ const authProcedure = publicProcedure.use(({ req, error }) => {
     });
   }
 
-  return { userId: "user_1" };
+  return next({ userId: "user_1" });
 });
 
 const chatRouter = createRouter({
@@ -95,41 +116,29 @@ const chatRouter = createRouter({
     }),
 });
 
-const rpc = createBunRPCRoutes({ chat: chatRouter }, { prefix: "/api" });
+const rpc = createBunRPCRoutes(
+  { chat: chatRouter },
+  {
+    prefix: "/api",
+    formatInternalServerError: (_error, event) => {
+      return {
+        message: "Unexpected server error",
+        details: {
+          requestPath: event.path,
+        },
+      };
+    },
+  }
+);
 
 Bun.serve({
   port: 3000,
   routes: {
-    ...wrapRoutes(rpc.routes),
+    ...rpc.routes,
   },
 });
 
 export type AppRouter = typeof rpc._router;
-```
-
-`wrapRoutes()` does not log by default. You can attach your own logger:
-
-```ts
-const routes = wrapRoutes(rpc.routes, {
-  onRequest: (event) => {
-    // Send to your logger/metrics system
-    // event.req is available for headers/IP/user-agent
-    console.log(event);
-  },
-  onUnexpectedError: (error, event) => {
-    // Send to Sentry/Bugsnag/etc.
-    console.error("Unexpected RPC error", event, error);
-  },
-  formatInternalServerError: (_error, event) => {
-    // Return a sanitized payload for 500 responses
-    return {
-      message: "Unexpected server error",
-      details: {
-        requestPath: event.path,
-      },
-    };
-  },
-});
 ```
 
 ### 2) Use safe client API
@@ -139,7 +148,7 @@ import { createClient, isAppError } from "bunrpc";
 import type { AppRouter } from "./server";
 
 const client = createClient<AppRouter>({
-  baseUrl: "http://localhost:3000/api",
+  baseUrl: "/api",
 });
 
 const result = await client.chat.create({ title: "Roadmap" });
@@ -156,6 +165,8 @@ if (!result.ok) {
   }
 }
 ```
+
+If your frontend and API are on the same domain, use `baseUrl: "/api"` (or omit `baseUrl` entirely, since `"/api"` is the default).
 
 ### 3) React Query integration (throws typed `RpcError`)
 
@@ -202,22 +213,8 @@ Common system codes:
 
 - `createProcedure()` - middleware/procedure builder
 - `createRouter()` - group procedures in a nested router
-- `createBunRPCRoutes()` - generate `Bun.serve()` route handlers
-- `wrapRoutes()` - top-level error handling wrapper with optional logging hooks
+- `createBunRPCRoutes()` - generate `Bun.serve()` route handlers with optional internal error formatter
 - `createClient()` - safe RPC client returning `RpcResult`
 - `isAppError(result)` - type guard for app errors in safe results
 - `createQueryClient()` (`bunrpc/react`) - React Query integration
 - `RpcError<TPayload>` - typed error class used by React Query flow
-
-## Local Development
-
-```bash
-bun install
-bun run check
-```
-
-## Publishing
-
-```bash
-bun publish --access public
-```

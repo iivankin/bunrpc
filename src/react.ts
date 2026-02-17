@@ -11,6 +11,8 @@ import {
   createSystemError,
   type AnyProcedure,
   type ProcedureClientError,
+  type ProcedureInput,
+  type ProcedureOutput,
   type Router,
   type RpcErrorUnion,
   type RpcResult,
@@ -55,7 +57,11 @@ interface QueryHooks<
 
 type InferQueryClient<T extends Router> = {
   [K in keyof T]: T[K] extends AnyProcedure
-    ? QueryHooks<T[K]["_input"], T[K]["_output"], ProcedureClientError<T[K]>>
+    ? QueryHooks<
+        ProcedureInput<T[K]>,
+        ProcedureOutput<T[K]>,
+        ProcedureClientError<T[K]>
+      >
     : T[K] extends Router
       ? InferQueryClient<T[K]>
       : never;

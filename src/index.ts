@@ -8,9 +8,11 @@ export {
   createBunRPCRoutes,
   createProcedure,
   createRouter,
-  wrapRoutes,
 } from "./server";
-export type { WrapRoutesEvent, WrapRoutesOptions } from "./server";
+export type {
+  BunRPCRouteErrorEvent,
+  CreateBunRPCRoutesOptions,
+} from "./server";
 
 // Type exports
 export type {

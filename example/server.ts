@@ -2,7 +2,6 @@ import {
   createBunRPCRoutes,
   createProcedure,
   createRouter,
-  wrapRoutes,
 } from "../src";
 import * as z from "zod";
 
@@ -14,7 +13,7 @@ const chats: Array<{ id: string; title: string; ownerId: string }> = [];
 
 const publicProcedure = createProcedure();
 
-const authProcedure = publicProcedure.use(({ req, error }) => {
+const authProcedure = publicProcedure.use(async ({ req, error, next }) => {
   const authHeader = req.headers.get("authorization");
   if (!authHeader) {
     return error({
@@ -25,7 +24,7 @@ const authProcedure = publicProcedure.use(({ req, error }) => {
   }
 
   const userId = authHeader.replace(/^Bearer\s+/i, "") || "demo-user";
-  return { userId };
+  return next({ userId });
 });
 
 const chatRouter = createRouter({
@@ -64,13 +63,21 @@ const chatRouter = createRouter({
     }),
 });
 
-const rpc = createBunRPCRoutes({ chat: chatRouter }, { prefix: "/api" });
+const rpc = createBunRPCRoutes(
+  { chat: chatRouter },
+  {
+    prefix: "/api",
+    formatInternalServerError: () => ({
+      message: "Unexpected server error",
+    }),
+  }
+);
 
 Bun.serve({
   port: 3000,
   routes: {
     "/health": () => Response.json({ ok: true }),
-    ...wrapRoutes(rpc.routes),
+    ...rpc.routes,
   },
 });
 

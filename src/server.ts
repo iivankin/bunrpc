@@ -6,6 +6,7 @@ import {
   createSystemError,
   isProcedureErrorResult,
   type AnyProcedure,
+  type AnyProcedureNextResult,
   type AppRpcError,
   type BaseContext,
   type BunRPCRoutes,
@@ -17,6 +18,8 @@ import {
   type ProcedureErrorFactory,
   type ProcedureErrorResult,
   type ProcedureHelpers,
+  type ProcedureMiddlewareOptions,
+  type ProcedureNextResult,
   type ProcedureOutputFromResult,
   type Router,
 } from "./types";
@@ -33,14 +36,22 @@ interface ProcedureBuilder<TContext, TError extends AppRpcError = never> {
   /**
    * Add middleware that extends context
    */
-  use<TResult>(
-    fn: (
-      ctx: TContext & BaseContext & ProcedureHelpers
-    ) => MaybePromise<TResult>
+  use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<any>>(
+    fn: TFn
   ): ProcedureBuilder<
     TContext &
-      NormalizeMiddlewareContext<MiddlewareContextFromResult<TResult>>,
-    TError | ProcedureErrorFromResult<TResult>
+      NormalizeMiddlewareContext<
+        MiddlewareContextFromResult<
+          Extract<Awaited<ReturnType<TFn>>, AnyProcedureNextResult>
+        >
+      >,
+    TError |
+      ProcedureErrorFromResult<
+        Extract<
+          Awaited<ReturnType<TFn>>,
+          ProcedureErrorResult<AppRpcError>
+        >
+      >
   >;
 
   /**
@@ -90,11 +101,11 @@ interface ProcedureBuilderWithInput<
 }
 
 type RuntimeMiddleware = (
-  ctx: BaseContext & ProcedureHelpers & Record<string, unknown>
-) =>
-  | Promise<Record<string, unknown> | ProcedureErrorResult<AppRpcError>>
-  | Record<string, unknown>
-  | ProcedureErrorResult<AppRpcError>;
+  opts: ProcedureMiddlewareOptions<Record<string, unknown>>
+) => Promise<
+  | ProcedureNextResult<unknown, never, Record<string, unknown>>
+  | ProcedureErrorResult<AppRpcError>
+>;
 
 function createProcedureHelpers(): ProcedureHelpers {
   const error: ProcedureErrorFactory = (input) => createProcedureErrorResult(input);
@@ -111,21 +122,44 @@ export function createProcedure(): ProcedureBuilder<Record<string, never>, never
 function createProcedureBuilder<TContext, TError extends AppRpcError>(
   middlewares: RuntimeMiddleware[]
 ): ProcedureBuilder<TContext, TError> {
-  return {
-    use<TResult>(
-      fn: (
-        ctx: TContext & BaseContext & ProcedureHelpers
-      ) => MaybePromise<TResult>
+  const builder = {
+    use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<any>>(
+      fn: TFn
     ): ProcedureBuilder<
       TContext &
-        NormalizeMiddlewareContext<MiddlewareContextFromResult<TResult>>,
-      TError | ProcedureErrorFromResult<TResult>
+        NormalizeMiddlewareContext<
+          MiddlewareContextFromResult<
+            Extract<Awaited<ReturnType<TFn>>, AnyProcedureNextResult>
+          >
+        >,
+      TError |
+        ProcedureErrorFromResult<
+          Extract<
+            Awaited<ReturnType<TFn>>,
+            ProcedureErrorResult<AppRpcError>
+          >
+        >
     > {
-      return createProcedureBuilder<
+      const nextBuilder = createProcedureBuilder([
+        ...middlewares,
+        fn as RuntimeMiddleware,
+      ]);
+
+      return nextBuilder as unknown as ProcedureBuilder<
         TContext &
-          NormalizeMiddlewareContext<MiddlewareContextFromResult<TResult>>,
-        TError | ProcedureErrorFromResult<TResult>
-      >([...middlewares, fn as RuntimeMiddleware]);
+          NormalizeMiddlewareContext<
+            MiddlewareContextFromResult<
+              Extract<Awaited<ReturnType<TFn>>, AnyProcedureNextResult>
+            >
+          >,
+        TError |
+          ProcedureErrorFromResult<
+            Extract<
+              Awaited<ReturnType<TFn>>,
+              ProcedureErrorResult<AppRpcError>
+            >
+          >
+      >;
     },
 
     input<TSchema extends StandardSchemaV1>(
@@ -189,6 +223,8 @@ function createProcedureBuilder<TContext, TError extends AppRpcError>(
       };
     },
   };
+
+  return builder as unknown as ProcedureBuilder<TContext, TError>;
 }
 
 // ============================================================================
@@ -259,11 +295,31 @@ function formatIssuePath(
  * Create Bun.serve routes from router
  * Paths are generated from router structure: chat.create -> /api/chat/create
  */
+export interface BunRPCRouteErrorEvent {
+  req: BunRequest<string>;
+  method: string;
+  path: string;
+  status: number;
+  duration: number;
+  error?: string;
+}
+
+export interface CreateBunRPCRoutesOptions {
+  prefix?: string;
+  formatInternalServerError?: (
+    error: unknown,
+    event: BunRPCRouteErrorEvent
+  ) => {
+    message?: string;
+    details?: unknown;
+  };
+}
+
 export function createBunRPCRoutes<T extends Router>(
   router: T,
-  options: { prefix?: string } = {}
+  options: CreateBunRPCRoutesOptions = {}
 ): BunRPCRoutes<T> {
-  const { prefix = "/api" } = options;
+  const { prefix = "/api", formatInternalServerError } = options;
   const procedures = collectProcedures(router);
   const routes: Record<
     string,
@@ -277,180 +333,161 @@ export function createBunRPCRoutes<T extends Router>(
       req: BunRequest<string>,
       server: Server<unknown>
     ) => {
-      if (req.method !== "POST") {
-        throw new BunRpcHttpError(
-          405,
-          "Method not allowed, use POST",
-          undefined,
-          {
-          code: "METHOD_NOT_ALLOWED",
-          }
-        );
-      }
-
-      const helpers = createProcedureHelpers();
-      let ctx: BaseContext & ProcedureHelpers & Record<string, unknown> = {
-        req,
-        server,
-        ...helpers,
-      };
-
-      for (const middleware of procedure.middlewares) {
-        const middlewareResult = await middleware(ctx);
-
-        if (isProcedureErrorResult(middlewareResult)) {
-          return Response.json(middlewareResult.error, {
-            status: middlewareResult.error.status,
-          });
-        }
-
-        ctx = { ...ctx, ...middlewareResult };
-      }
-
-      let input: unknown;
-      if (procedure.inputSchema) {
-        let rawBody: unknown;
-        try {
-          rawBody = await req.json();
-        } catch {
-          throw new BunRpcHttpError(400, "Invalid JSON body", undefined, {
-            code: "INVALID_JSON",
-          });
-        }
-
-        const validation = await procedure.inputSchema["~standard"].validate(
-          rawBody
-        );
-        if (validation.issues) {
-          const issues = validation.issues.map((issue) => ({
-            path: formatIssuePath(issue.path),
-            message: issue.message,
-          }));
-          throw new BunRpcHttpError(400, "Validation failed", { issues }, {
-            code: "VALIDATION_ERROR",
-          });
-        }
-        input = validation.value;
-      }
-
-      const handlerResult = await procedure.handler({ ...ctx, input } as never);
-      if (isProcedureErrorResult(handlerResult)) {
-        return Response.json(handlerResult.error, {
-          status: handlerResult.error.status,
-        });
-      }
-
-      return Response.json(handlerResult);
-    };
-  }
-
-  return {
-    _router: router,
-    routes,
-  };
-}
-
-// ============================================================================
-// Wrap helper for error handling (with optional client-defined logging hooks)
-// ============================================================================
-
-export interface WrapRoutesEvent {
-  req: BunRequest<string>;
-  method: string;
-  path: string;
-  status: number;
-  duration: number;
-  error?: string;
-}
-
-export interface WrapRoutesOptions {
-  /**
-   * Called after each request (both success and handled error responses).
-   * Useful for custom logging/metrics.
-   */
-  onRequest?: (event: WrapRoutesEvent) => void;
-
-  /**
-   * Called when an unexpected (non-BunRpcHttpError) exception happens.
-   * Useful for error reporting tools.
-   */
-  onUnexpectedError?: (error: unknown, event: WrapRoutesEvent) => void;
-
-  /**
-   * Formats response payload for unexpected internal errors.
-   * Use this to avoid leaking implementation details to clients.
-   */
-  formatInternalServerError?: (
-    error: unknown,
-    event: WrapRoutesEvent
-  ) => {
-    message?: string;
-    details?: unknown;
-  };
-}
-
-type RouteHandler = (
-  req: BunRequest<string>,
-  server: Server<unknown>
-) => Promise<Response>;
-
-/**
- * Wrap RPC routes with error handling and logging
- */
-export function wrapRoutes(
-  routes: Record<string, RouteHandler>,
-  options: WrapRoutesOptions = {}
-): Record<string, RouteHandler> {
-  const { onRequest, onUnexpectedError, formatInternalServerError } = options;
-  const wrapped: Record<string, RouteHandler> = {};
-
-  for (const [path, handler] of Object.entries(routes)) {
-    wrapped[path] = async (
-      req: BunRequest<string>,
-      server: Server<unknown>
-    ) => {
-      const url = new URL(req.url);
       const start = Date.now();
+      const url = new URL(req.url);
 
       try {
-        const result = await handler(req, server);
-        onRequest?.({
-          req,
-          method: req.method,
-          path: url.pathname,
-          status: result.status,
-          duration: Date.now() - start,
-        });
-        return result;
-      } catch (error) {
-        const duration = Date.now() - start;
+        if (req.method !== "POST") {
+          throw new BunRpcHttpError(
+            405,
+            "Method not allowed, use POST",
+            undefined,
+            {
+              code: "METHOD_NOT_ALLOWED",
+            }
+          );
+        }
 
-        if (error instanceof BunRpcHttpError) {
-          onRequest?.({
-            req,
-            method: req.method,
-            path: url.pathname,
-            status: error.status,
-            duration,
-            error: error.formatForLog(),
+        const helpers = createProcedureHelpers();
+        const baseCtx: BaseContext & ProcedureHelpers & Record<string, unknown> = {
+          req,
+          server,
+          ...helpers,
+        };
+
+        const execute = async (
+          index: number,
+          ctx: BaseContext & ProcedureHelpers & Record<string, unknown>
+        ): Promise<ProcedureNextResult> => {
+          if (index >= procedure.middlewares.length) {
+            let input: unknown;
+            if (procedure.inputSchema) {
+              let rawBody: unknown;
+              try {
+                rawBody = await req.json();
+              } catch {
+                throw new BunRpcHttpError(400, "Invalid JSON body", undefined, {
+                  code: "INVALID_JSON",
+                });
+              }
+
+              const validation = await procedure.inputSchema["~standard"].validate(
+                rawBody
+              );
+              if (validation.issues) {
+                const issues = validation.issues.map((issue) => ({
+                  path: formatIssuePath(issue.path),
+                  message: issue.message,
+                }));
+                throw new BunRpcHttpError(400, "Validation failed", { issues }, {
+                  code: "VALIDATION_ERROR",
+                });
+              }
+              input = validation.value;
+            }
+
+            const handlerResult = await procedure.handler({ ...ctx, input } as never);
+            if (isProcedureErrorResult(handlerResult)) {
+              return { ok: false, error: handlerResult.error };
+            }
+
+            return { ok: true, data: handlerResult };
+          }
+
+          const middleware = procedure.middlewares[index];
+          if (!middleware) {
+            throw new BunRpcHttpError(
+              500,
+              "Middleware index out of bounds",
+              undefined,
+              { code: "INTERNAL_SERVER_ERROR" }
+            );
+          }
+
+          let nextCalled = false;
+
+          const middlewareResult = await middleware({
+            ...ctx,
+            path: fullPath,
+            type: "rpc",
+            next: async <TContextExtension extends Record<string, unknown>>(
+              contextExtension?: TContextExtension
+            ) => {
+              if (nextCalled) {
+                throw new BunRpcHttpError(
+                  500,
+                  "Middleware next() called multiple times",
+                  undefined,
+                  { code: "INTERNAL_SERVER_ERROR" }
+                );
+              }
+
+              nextCalled = true;
+              const extension =
+                contextExtension === undefined
+                  ? ({} as TContextExtension)
+                  : contextExtension;
+
+              return execute(index + 1, {
+                ...ctx,
+                ...extension,
+              }) as Promise<
+                ProcedureNextResult<unknown, never, TContextExtension>
+              >;
+            },
           });
+
+          if (isProcedureErrorResult(middlewareResult)) {
+            return { ok: false, error: middlewareResult.error };
+          }
+
+          if (!nextCalled) {
+            throw new BunRpcHttpError(
+              500,
+              "Middleware must call next() or return error(...)",
+              undefined,
+              { code: "INTERNAL_SERVER_ERROR" }
+            );
+          }
+
+          if (
+            typeof middlewareResult !== "object" ||
+            middlewareResult === null ||
+            !("ok" in middlewareResult)
+          ) {
+            throw new BunRpcHttpError(
+              500,
+              "Middleware must return next() result",
+              undefined,
+              { code: "INTERNAL_SERVER_ERROR" }
+            );
+          }
+
+          return middlewareResult as ProcedureNextResult;
+        };
+
+        const result = await execute(0, baseCtx);
+
+        if (!result.ok) {
+          return Response.json(result.error, { status: result.error.status });
+        }
+
+        return Response.json(result.data);
+      } catch (error) {
+        if (error instanceof BunRpcHttpError) {
           return Response.json(error.toJSON(), { status: error.status });
         }
 
-        const event: WrapRoutesEvent = {
+        const event: BunRPCRouteErrorEvent = {
           req,
           method: req.method,
           path: url.pathname,
           status: 500,
-          duration,
+          duration: Date.now() - start,
           error: String(error),
         };
 
-        onRequest?.(event);
-        onUnexpectedError?.(error, event);
-
         const formatted = formatInternalServerError?.(error, event);
-
         const payload = createSystemError(
           "INTERNAL_SERVER_ERROR",
           500,
@@ -463,5 +500,8 @@ export function wrapRoutes(
     };
   }
 
-  return wrapped;
+  return {
+    _router: router,
+    routes,
+  };
 }

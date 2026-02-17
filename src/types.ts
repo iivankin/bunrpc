@@ -147,6 +147,51 @@ export interface ProcedureHelpers {
   error: ProcedureErrorFactory;
 }
 
+export interface ProcedureNextSuccess<TData = unknown> {
+  ok: true;
+  data: TData;
+}
+
+export interface ProcedureNextError<TError extends AppRpcError = AppRpcError> {
+  ok: false;
+  error: TError;
+}
+
+const NEXT_CONTEXT_MARKER = "__bunrpcNextContext" as const;
+
+export type ProcedureNextResult<
+  TData = unknown,
+  TError extends AppRpcError = AppRpcError,
+  TContextExtension extends Record<string, unknown> = Record<string, never>,
+> =
+  | (ProcedureNextSuccess<TData> & {
+      readonly [NEXT_CONTEXT_MARKER]?: TContextExtension;
+    })
+  | (ProcedureNextError<TError> & {
+      readonly [NEXT_CONTEXT_MARKER]?: TContextExtension;
+    });
+
+export type AnyProcedureNextResult = ProcedureNextResult<
+  unknown,
+  AppRpcError,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  any
+>;
+
+export interface ProcedureMiddlewareMeta {
+  path: string;
+  type: "rpc";
+}
+
+export type ProcedureMiddlewareOptions<TContext> = TContext &
+  BaseContext &
+  ProcedureHelpers &
+  ProcedureMiddlewareMeta & {
+    next: <TContextExtension extends Record<string, unknown> = Record<string, never>>(
+      contextExtension?: TContextExtension
+    ) => Promise<ProcedureNextResult<unknown, never, TContextExtension>>;
+  };
+
 export function createAppError<TCode extends string, TDetails = unknown>(
   input: AppProcedureErrorInput<TCode, TDetails>
 ): AppRpcError<TCode, TDetails> {
@@ -233,10 +278,9 @@ export type ProcedureOutputFromResult<TResult> = Exclude<
   ProcedureErrorResult<AppRpcError>
 >;
 
-export type MiddlewareContextFromResult<TResult> = Exclude<
-  Awaited<TResult>,
-  ProcedureErrorResult<AppRpcError>
-> extends infer TContext
+export type MiddlewareContextFromResult<TResult> = Awaited<TResult> extends {
+  readonly [NEXT_CONTEXT_MARKER]?: infer TContext;
+}
   ? TContext extends Record<string, unknown>
     ? TContext
     : never
@@ -262,11 +306,9 @@ export interface Procedure<
   _type: "procedure";
   inputSchema?: StandardSchemaV1;
   middlewares: Array<
-    (
-      ctx: BaseContext & ProcedureHelpers & Record<string, unknown>
-    ) =>
-      | Promise<Record<string, unknown> | ProcedureErrorResult<AppRpcError>>
-      | Record<string, unknown>
+    (ctx: ProcedureMiddlewareOptions<Record<string, unknown>>) =>
+      | Promise<AnyProcedureNextResult | ProcedureErrorResult<AppRpcError>>
+      | AnyProcedureNextResult
       | ProcedureErrorResult<AppRpcError>
   >;
   handler: (
@@ -281,6 +323,26 @@ export interface Procedure<
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyProcedure = Procedure<any, any, any, any>;
+
+export type ProcedureInput<TProcedure> = TProcedure extends {
+  _input: infer TInput;
+}
+  ? TInput
+  : never;
+
+export type ProcedureOutput<TProcedure> = TProcedure extends {
+  _output: infer TOutput;
+}
+  ? TOutput
+  : never;
+
+export type ProcedureAppError<TProcedure> = TProcedure extends {
+  _error: infer TError;
+}
+  ? TError extends AppRpcError
+    ? TError
+    : never
+  : never;
 
 // ============================================================================
 // Router types
@@ -303,11 +365,11 @@ export interface BunRPCRoutes<T extends Router> {
 // Client types - inferred from Router type only
 // ============================================================================
 
-type ProcedureServerSystemErrors<P extends AnyProcedure> =
+type ProcedureServerSystemErrorsByInput<TInput> =
   | SystemRpcError<"METHOD_NOT_ALLOWED">
   | SystemRpcError<"HTTP_ERROR">
   | SystemRpcError<"INTERNAL_SERVER_ERROR">
-  | (P["_input"] extends undefined
+  | (TInput extends undefined
       ? never
       : SystemRpcError<"INVALID_JSON" | "VALIDATION_ERROR">);
 
@@ -315,27 +377,45 @@ type ProcedureClientSystemErrors =
   | SystemRpcError<"NETWORK_ERROR">
   | SystemRpcError<"BAD_RESPONSE">;
 
-export type ProcedureSystemErrors<P extends AnyProcedure> =
-  | ProcedureServerSystemErrors<P>
+type ProcedureSystemErrorsByInput<TInput> =
+  | ProcedureServerSystemErrorsByInput<TInput>
   | ProcedureClientSystemErrors;
 
-export type ProcedureClientError<P extends AnyProcedure> =
-  | P["_error"]
-  | ProcedureSystemErrors<P>;
+type ProcedureClientErrorByParts<
+  TInput,
+  TAppError,
+> = Extract<TAppError, AppRpcError> | ProcedureSystemErrorsByInput<TInput>;
 
-export type ProcedureResult<P extends AnyProcedure> = RpcResult<
-  P["_output"],
-  ProcedureClientError<P>
+type ProcedureResultByParts<
+  TInput,
+  TOutput,
+  TAppError,
+> = RpcResult<TOutput, ProcedureClientErrorByParts<TInput, TAppError>>;
+
+export type ProcedureSystemErrors<P> = ProcedureSystemErrorsByInput<
+  ProcedureInput<P>
 >;
 
-type ClientMethod<P extends AnyProcedure> = P["_input"] extends undefined
-  ? () => Promise<ProcedureResult<P>>
-  : (input: P["_input"]) => Promise<ProcedureResult<P>>;
+export type ProcedureClientError<P> = ProcedureClientErrorByParts<
+  ProcedureInput<P>,
+  ProcedureAppError<P>
+>;
 
-export type InferClient<T extends Router> = {
-  [K in keyof T]: T[K] extends AnyProcedure
-    ? ClientMethod<T[K]>
-    : T[K] extends Router
+export type ProcedureResult<P> = RpcResult<ProcedureOutput<P>, ProcedureClientError<P>>;
+
+export type InferClient<T> = {
+  [K in keyof T]: T[K] extends {
+    _type: "procedure";
+    _input: infer TInput;
+    _output: infer TOutput;
+    _error: infer TAppError;
+  }
+    ? TInput extends undefined
+      ? () => Promise<ProcedureResultByParts<TInput, TOutput, TAppError>>
+      : (
+          input: TInput
+        ) => Promise<ProcedureResultByParts<TInput, TOutput, TAppError>>
+    : T[K] extends object
       ? InferClient<T[K]>
       : never;
 };

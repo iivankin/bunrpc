@@ -48,16 +48,4 @@ export class BunRpcHttpError extends Error {
           details: this.details,
         };
   }
-
-  formatForLog(): string {
-    if (this.details === undefined) {
-      return `[${this.code}] ${this.message}`;
-    }
-
-    try {
-      return `[${this.code}] ${this.message}: ${JSON.stringify(this.details)}`;
-    } catch {
-      return `[${this.code}] ${this.message}`;
-    }
-  }
 }
