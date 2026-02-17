@@ -1,0 +1,46 @@
+{
+  "name": "bunrpc",
+  "version": "0.1.0",
+  "description": "Type-safe RPC layer for Bun with optional React Query support",
+  "module": "./index.ts",
+  "types": "./index.ts",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./client": "./src/client.ts",
+    "./http-error": "./src/http-error.ts",
+    "./standard-schema": "./src/standard-schema.ts",
+    "./server": "./src/server.ts",
+    "./react": "./src/react.ts",
+    "./types": "./src/types.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "!src/**/*.test.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "check": "bun run typecheck && bun test",
+    "prepublishOnly": "bun run check"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.90.21",
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.90.21"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/react-query": {
+      "optional": true
+    }
+  }
+}

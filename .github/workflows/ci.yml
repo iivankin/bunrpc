@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.9"
+
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+
+  publish:
+    needs: test
+    if: |
+      github.event_name == 'push'
+      && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.9"
+
+      - run: bun install --frozen-lockfile
+
+      #- run: bun publish --access public
+        #env:
+          #NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
