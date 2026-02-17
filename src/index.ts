@@ -14,6 +14,7 @@ export {
 
 // Type exports
 export type {
+  AppRpcError,
   AnyProcedure,
   BaseContext,
   BunRPCRoutes,
@@ -21,7 +22,16 @@ export type {
   InferSchema,
   InferSchemaInput,
   InferSchemaOutput,
+  ProcedureClientError,
+  ProcedureResult,
   Procedure,
+  RpcResult,
+  ValidationErrorDetails,
+  ValidationIssue,
+  SystemRpcError,
+  SystemErrorDetails,
+  SystemRpcErrorCode,
   Router,
 } from "./types";
+export { isAppError } from "./types";
 export type { StandardSchemaV1 } from "./standard-schema";

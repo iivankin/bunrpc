@@ -1,5 +1,10 @@
-import type { InferClient, Router } from "./types";
 import { parseErrorPayload } from "./error-payload";
+import {
+  createSystemError,
+  type InferClient,
+  type Router,
+  type RpcErrorUnion,
+} from "./types";
 
 // ============================================================================
 // Client Configuration
@@ -22,15 +27,29 @@ export interface ClientConfig {
 // RPC Error
 // ============================================================================
 
-export class RpcError extends Error {
-  status: number;
-  details?: unknown;
+export class RpcError<TPayload extends RpcErrorUnion = RpcErrorUnion> extends Error {
+  payload: TPayload;
 
-  constructor(status: number, message: string, details?: unknown) {
-    super(message);
+  constructor(payload: TPayload) {
+    super(payload.message);
     this.name = "RpcError";
-    this.status = status;
-    this.details = details;
+    this.payload = payload;
+  }
+
+  get source(): TPayload["source"] {
+    return this.payload.source;
+  }
+
+  get code(): TPayload["code"] {
+    return this.payload.code;
+  }
+
+  get status(): number {
+    return this.payload.status;
+  }
+
+  get details(): TPayload["details"] {
+    return this.payload.details;
   }
 }
 
@@ -39,82 +58,104 @@ export class RpcError extends Error {
 // ============================================================================
 
 /**
- * Create a type-safe RPC client
+ * Create a type-safe safe-result RPC client.
  *
- * The client uses only the TYPE of the router - no runtime data is passed.
- * Paths are built from the router structure: chat.create -> POST /api/chat/create
- *
- * @example
- * ```ts
- * // Server exports type
- * export type AppRouter = typeof rpcRoutes._router;
- *
- * // Client uses only the type
- * import type { AppRouter } from "./server";
- *
- * const client = createClient<AppRouter>({ baseUrl: "/api" });
- *
- * // Full type safety
- * const chat = await client.chat.create({ title: "Hello" });
- * const user = await client.user.me();
- * ```
+ * All procedure calls return a discriminated union:
+ * - `{ ok: true, data }` on success
+ * - `{ ok: false, error }` on failure
  */
 export function createClient<TRouter extends Router>(
   config: ClientConfig = {}
 ): InferClient<TRouter> {
   const { baseUrl = "/api", fetch: customFetch = fetch, headers = {} } = config;
 
+  async function callProcedure(
+    pathParts: string[],
+    input: unknown
+  ): Promise<
+    | { ok: true; data: unknown }
+    | { ok: false; error: RpcErrorUnion }
+  > {
+    const path = `${baseUrl}/${pathParts.join("/")}`;
+
+    let requestHeaders: Record<string, string>;
+    try {
+      requestHeaders =
+        typeof headers === "function" ? await headers() : { ...headers };
+    } catch (error) {
+      return {
+        ok: false,
+        error: createSystemError("NETWORK_ERROR", 0, "Failed to resolve headers", {
+          cause: String(error),
+        }),
+      };
+    }
+
+    const options: RequestInit = {
+      method: "POST",
+      headers: {
+        ...requestHeaders,
+        "Content-Type": "application/json",
+      },
+    };
+
+    if (input !== undefined) {
+      options.body = JSON.stringify(input);
+    }
+
+    let response: Response;
+    try {
+      response = await customFetch(path, options);
+    } catch (error) {
+      return {
+        ok: false,
+        error: createSystemError("NETWORK_ERROR", 0, "Network request failed", {
+          cause: String(error),
+        }),
+      };
+    }
+
+    if (!response.ok) {
+      const payload = await response.json().catch((): unknown => null);
+      const fallback = createSystemError(
+        "HTTP_ERROR",
+        response.status,
+        response.statusText || "Request failed"
+      );
+
+      return {
+        ok: false,
+        error: parseErrorPayload(payload, fallback),
+      };
+    }
+
+    try {
+      const data = await response.json();
+      return { ok: true, data };
+    } catch (error) {
+      return {
+        ok: false,
+        error: createSystemError(
+          "BAD_RESPONSE",
+          response.status,
+          "Invalid JSON response",
+          {
+            cause: String(error),
+          }
+        ),
+      };
+    }
+  }
+
   function createProxy(pathParts: string[]): unknown {
     return new Proxy(() => {}, {
-      // Property access: client.chat.create -> builds path ["chat", "create"]
       get(_, prop: string) {
         return createProxy([...pathParts, prop]);
       },
 
-      // Function call: client.chat.create(input) -> makes request
       apply: async (_, __, args: unknown[]) => {
-        const path = `${baseUrl}/${pathParts.join("/")}`;
         const input = args[0];
-
-        // Get headers
-        const requestHeaders: Record<string, string> =
-          typeof headers === "function" ? await headers() : { ...headers };
-
-        // Build request
-        const options: RequestInit = {
-          method: "POST",
-          headers: {
-            ...requestHeaders,
-            "Content-Type": "application/json",
-          },
-        };
-
-        // Add body if input provided
-        if (input !== undefined) {
-          options.body = JSON.stringify(input);
-        }
-
-        // Make request
-        const response = await customFetch(path, options);
-
-        // Handle errors
-        if (!response.ok) {
-          const payload = await response
-            .json()
-            .catch((): unknown => ({ error: response.statusText }));
-          const { message, details } = parseErrorPayload(
-            payload,
-            "Request failed"
-          );
-
-          throw new RpcError(
-            response.status,
-            message,
-            details
-          );
-        }
-
-        return response.json();
+        return callProcedure(pathParts, input);
       },
     });
   }

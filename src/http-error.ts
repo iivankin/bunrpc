@@ -1,29 +1,62 @@
+interface HttpErrorOptions {
+  source?: "app" | "system";
+  code?: string;
+}
+
+interface HttpErrorPayload {
+  source: "app" | "system";
+  code: string;
+  status: number;
+  message: string;
+  details?: unknown;
+}
+
 export class HttpError extends Error {
   status: number;
   details?: unknown;
+  code: string;
+  source: "app" | "system";
 
-  constructor(status: number, message: string, details?: unknown) {
+  constructor(
+    status: number,
+    message: string,
+    details?: unknown,
+    options: HttpErrorOptions = {}
+  ) {
     super(message);
     this.name = "HttpError";
     this.status = status;
     this.details = details;
+    this.source = options.source ?? "system";
+    this.code = options.code ?? (this.source === "app" ? "APP_ERROR" : "HTTP_ERROR");
   }
 
-  toJSON(): { error: string; details?: unknown } {
+  toJSON(): HttpErrorPayload {
     return this.details === undefined
-      ? { error: this.message }
-      : { error: this.message, details: this.details };
+      ? {
+          source: this.source,
+          code: this.code,
+          status: this.status,
+          message: this.message,
+        }
+      : {
+          source: this.source,
+          code: this.code,
+          status: this.status,
+          message: this.message,
+          details: this.details,
+        };
   }
 
   formatForLog(): string {
     if (this.details === undefined) {
-      return this.message;
+      return `[${this.code}] ${this.message}`;
     }
 
     try {
-      return `${this.message}: ${JSON.stringify(this.details)}`;
+      return `[${this.code}] ${this.message}: ${JSON.stringify(this.details)}`;
     } catch {
-      return this.message;
+      return `[${this.code}] ${this.message}`;
     }
   }
 }

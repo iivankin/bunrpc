@@ -6,67 +6,56 @@ import type {
   UseQueryResult,
 } from "@tanstack/react-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ClientConfig } from "./client";
-import { RpcError } from "./client";
-import { parseErrorPayload } from "./error-payload";
-import type { AnyProcedure, Router } from "./types";
+import { createClient, type ClientConfig, RpcError } from "./client";
+import {
+  createSystemError,
+  type AnyProcedure,
+  type ProcedureClientError,
+  type Router,
+  type RpcErrorUnion,
+  type RpcResult,
+} from "./types";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-/** Query options without queryKey and queryFn (we provide those) */
-type QueryOptions<TOutput, TError = RpcError> = Omit<
+type QueryOptions<TOutput, TError> = Omit<
   UseQueryOptions<TOutput, TError, TOutput, QueryKey>,
   "queryKey" | "queryFn"
 >;
 
-/** Mutation options without mutationFn (we provide that) */
-type MutationOptions<TInput, TOutput, TError = RpcError> = Omit<
+type MutationOptions<TInput, TOutput, TError> = Omit<
   UseMutationOptions<TOutput, TError, TInput>,
   "mutationFn"
 >;
 
-/** Query hooks for procedures */
-interface QueryHooks<TInput, TOutput> {
-  /**
-   * React Query hook for fetching data
-   * @example
-   * const { data, isLoading } = rpc.plan.listAll.useQuery();
-   * const { data } = rpc.chat.get.useQuery({ id: "123" });
-   */
+interface QueryHooks<
+  TInput,
+  TOutput,
+  TErrorPayload extends RpcErrorUnion,
+> {
   useQuery: TInput extends undefined
-    ? (options?: QueryOptions<TOutput>) => UseQueryResult<TOutput, RpcError>
+    ? (
+        options?: QueryOptions<TOutput, RpcError<TErrorPayload>>
+      ) => UseQueryResult<TOutput, RpcError<TErrorPayload>>
     : (
         input: TInput,
-        options?: QueryOptions<TOutput>
-      ) => UseQueryResult<TOutput, RpcError>;
+        options?: QueryOptions<TOutput, RpcError<TErrorPayload>>
+      ) => UseQueryResult<TOutput, RpcError<TErrorPayload>>;
 
-  /**
-   * React Query hook for mutations
-   * @example
-   * const { mutate } = rpc.plan.remove.useMutation();
-   * mutate({ id: "123" });
-   */
   useMutation: (
-    options?: MutationOptions<TInput, TOutput>
-  ) => UseMutationResult<TOutput, RpcError, TInput>;
+    options?: MutationOptions<TInput, TOutput, RpcError<TErrorPayload>>
+  ) => UseMutationResult<TOutput, RpcError<TErrorPayload>, TInput>;
 
-  /**
-   * Get the query key for this procedure
-   * Useful for invalidation or prefetching
-   * @example
-   * queryClient.invalidateQueries({ queryKey: rpc.plan.listAll.getQueryKey() });
-   */
   getQueryKey: TInput extends undefined
     ? () => QueryKey
     : (input: TInput) => QueryKey;
 }
 
-/** Infer React Query client type from router */
 type InferQueryClient<T extends Router> = {
   [K in keyof T]: T[K] extends AnyProcedure
-    ? QueryHooks<T[K]["_input"], T[K]["_output"]>
+    ? QueryHooks<T[K]["_input"], T[K]["_output"], ProcedureClientError<T[K]>>
     : T[K] extends Router
       ? InferQueryClient<T[K]>
       : never;
@@ -76,103 +65,89 @@ type InferQueryClient<T extends Router> = {
 // Implementation
 // ============================================================================
 
-/**
- * Create a type-safe RPC client with React Query integration
- *
- * @example
- * ```ts
- * import type { AppRouter } from "./rpc";
- *
- * const rpc = createQueryClient<AppRouter>();
- *
- * // In components:
- * const { data, isLoading } = rpc.plan.listAll.useQuery();
- * const { data } = rpc.chat.get.useQuery({ id: "123" });
- *
- * const { mutate } = rpc.plan.remove.useMutation({
- *   onSuccess: () => rpc.plan.listAll.invalidate()
- * });
- *
- * // Manual invalidation
- * await rpc.plan.listAll.invalidate();
- * ```
- */
+function createPathTraversalError(pathParts: string[]): RpcError {
+  return new RpcError(
+    createSystemError(
+      "BAD_RESPONSE",
+      500,
+      `Invalid procedure path: ${pathParts.join(".") || "(root)"}`
+    )
+  );
+}
+
 export function createQueryClient<TRouter extends Router>(
   config: ClientConfig = {}
 ): InferQueryClient<TRouter> {
-  const { baseUrl = "/api", fetch: customFetch = fetch, headers = {} } = config;
+  const safeClient = createClient<TRouter>(config) as Record<string, unknown>;
 
-  /**
-   * Make an RPC request (extracted from client.ts logic)
-   */
-  async function rpcFetch(
+  function callSafeProcedure(
     pathParts: string[],
     input: unknown
-  ): Promise<unknown> {
-    const path = `${baseUrl}/${pathParts.join("/")}`;
+  ): Promise<RpcResult<unknown, RpcErrorUnion>> {
+    let current: unknown = safeClient;
 
-    const requestHeaders: Record<string, string> =
-      typeof headers === "function" ? await headers() : { ...headers };
+    for (const part of pathParts) {
+      if (
+        (typeof current !== "object" || current === null) &&
+        typeof current !== "function"
+      ) {
+        throw createPathTraversalError(pathParts);
+      }
 
-    const options: RequestInit = {
-      method: "POST",
-      headers: {
-        ...requestHeaders,
-        "Content-Type": "application/json",
-      },
-    };
-
-    if (input !== undefined) {
-      options.body = JSON.stringify(input);
+      current = (current as Record<string, unknown>)[part];
     }
 
-    const response = await customFetch(path, options);
-
-    if (!response.ok) {
-      const payload = await response
-        .json()
-        .catch((): unknown => ({ error: response.statusText }));
-      const { message, details } = parseErrorPayload(payload, "Request failed");
-
-      throw new RpcError(
-        response.status,
-        message,
-        details
-      );
+    if (typeof current !== "function") {
+      throw createPathTraversalError(pathParts);
     }
 
-    return response.json();
+    return (current as (value: unknown) => Promise<RpcResult<unknown, RpcErrorUnion>>)(
+      input
+    );
   }
 
-  /**
-   * Build query key from path and optional input
-   */
+  async function rpcFetch(pathParts: string[], input: unknown): Promise<unknown> {
+    try {
+      const result = await callSafeProcedure(pathParts, input);
+
+      if (!result.ok) {
+        throw new RpcError(result.error);
+      }
+
+      return result.data;
+    } catch (error) {
+      if (error instanceof RpcError) {
+        throw error;
+      }
+
+      throw new RpcError(
+        createSystemError("BAD_RESPONSE", 500, "Failed to execute procedure", {
+          cause: String(error),
+        })
+      );
+    }
+  }
+
   function buildQueryKey(pathParts: string[], input?: unknown): QueryKey {
     if (input === undefined) {
       return pathParts;
     }
+
     return [...pathParts, input];
   }
 
-  /**
-   * Create proxy that exposes .useQuery(), .useMutation(), etc.
-   */
   function createProxy(pathParts: string[]): unknown {
-    // The hooks object that will be returned for procedure access
-    const hooks: QueryHooks<unknown, unknown> = {
+    const hooks: QueryHooks<unknown, unknown, RpcErrorUnion> = {
       useQuery: (
         inputOrOptions?: unknown,
-        maybeOptions?: QueryOptions<unknown>
+        maybeOptions?: QueryOptions<unknown, RpcError<RpcErrorUnion>>
       ) => {
-        // Determine if first arg is input or options
-        // If maybeOptions is provided, first arg is definitely input
-        // Otherwise, check if it looks like options (has enabled, staleTime, etc.)
         const hasInput =
           maybeOptions !== undefined || !isQueryOptions(inputOrOptions);
         const input = hasInput ? inputOrOptions : undefined;
         const options = hasInput
           ? maybeOptions
-          : (inputOrOptions as QueryOptions<unknown>);
+          : (inputOrOptions as QueryOptions<unknown, RpcError<RpcErrorUnion>>);
 
         return useQuery({
           queryKey: buildQueryKey(pathParts, input),
@@ -181,7 +156,9 @@ export function createQueryClient<TRouter extends Router>(
         });
       },
 
-      useMutation: (options?: MutationOptions<unknown, unknown>) => {
+      useMutation: (
+        options?: MutationOptions<unknown, unknown, RpcError<RpcErrorUnion>>
+      ) => {
         return useMutation({
           mutationFn: (input: unknown) => rpcFetch(pathParts, input),
           ...options,
@@ -193,11 +170,10 @@ export function createQueryClient<TRouter extends Router>(
 
     return new Proxy(hooks, {
       get(target, prop: string) {
-        // If accessing a hook method, return it
         if (prop in target) {
           return target[prop as keyof typeof target];
         }
-        // Otherwise, continue building the path
+
         return createProxy([...pathParts, prop]);
       },
     });
@@ -206,12 +182,9 @@ export function createQueryClient<TRouter extends Router>(
   return createProxy([]) as InferQueryClient<TRouter>;
 }
 
-/**
- * Check if an object looks like query options vs input data
- */
-function isQueryOptions(obj: unknown): obj is QueryOptions<unknown> {
+function isQueryOptions(obj: unknown): obj is QueryOptions<unknown, RpcError> {
   if (!obj || typeof obj !== "object") return false;
-  // Common query options keys
+
   const optionKeys = [
     "enabled",
     "staleTime",
@@ -230,37 +203,18 @@ function isQueryOptions(obj: unknown): obj is QueryOptions<unknown> {
     "meta",
     "throwOnError",
   ];
+
   return optionKeys.some((key) => key in obj);
 }
 
-// ============================================================================
-// Utility hook for accessing query client in mutations
-// ============================================================================
-
-/**
- * Hook that provides utilities for cache invalidation
- * Use this in mutation options for type-safe invalidation
- *
- * @example
- * ```ts
- * const { invalidate } = useRpcUtils(rpc);
- *
- * const { mutate } = rpc.plan.remove.useMutation({
- *   onSuccess: () => invalidate(rpc.plan.listAll)
- * });
- * ```
- */
 export function useRpcUtils<TRouter extends Router>(
   _rpc: InferQueryClient<TRouter>
 ) {
   const queryClient = useQueryClient();
 
   return {
-    /**
-     * Invalidate queries for a procedure
-     */
-    invalidate: <TInput, TOutput>(
-      procedure: QueryHooks<TInput, TOutput>,
+    invalidate: <TInput, TOutput, TErrorPayload extends RpcErrorUnion>(
+      procedure: QueryHooks<TInput, TOutput, TErrorPayload>,
       input?: TInput
     ): Promise<void> => {
       return queryClient.invalidateQueries({
@@ -269,10 +223,6 @@ export function useRpcUtils<TRouter extends Router>(
         ),
       });
     },
-
-    /**
-     * Get the query client for advanced operations
-     */
     queryClient,
   };
 }
