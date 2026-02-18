@@ -306,10 +306,9 @@ export interface Procedure<
   _type: "procedure";
   inputSchema?: StandardSchemaV1;
   middlewares: Array<
-    (ctx: ProcedureMiddlewareOptions<Record<string, unknown>>) =>
-      | Promise<AnyProcedureNextResult | ProcedureErrorResult<AppRpcError>>
-      | AnyProcedureNextResult
-      | ProcedureErrorResult<AppRpcError>
+    (
+      ctx: ProcedureMiddlewareOptions<Record<string, unknown>>
+    ) => Promise<AnyProcedureNextResult | ProcedureErrorResult<AppRpcError>>
   >;
   handler: (
     ctx: TContext & ProcedureHelpers & { input: TInput }

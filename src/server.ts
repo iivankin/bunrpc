@@ -36,7 +36,7 @@ interface ProcedureBuilder<TContext, TError extends AppRpcError = never> {
   /**
    * Add middleware that extends context
    */
-  use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<any>>(
+  use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<unknown>>(
     fn: TFn
   ): ProcedureBuilder<
     TContext &
@@ -123,7 +123,7 @@ function createProcedureBuilder<TContext, TError extends AppRpcError>(
   middlewares: RuntimeMiddleware[]
 ): ProcedureBuilder<TContext, TError> {
   const builder = {
-    use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<any>>(
+    use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<unknown>>(
       fn: TFn
     ): ProcedureBuilder<
       TContext &

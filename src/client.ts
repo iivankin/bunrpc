@@ -31,7 +31,7 @@ export class RpcError<TPayload extends RpcErrorUnion = RpcErrorUnion> extends Er
   payload: TPayload;
 
   constructor(payload: TPayload) {
-    super(payload.message);
+    super(payload.message ?? payload.code);
     this.name = "RpcError";
     this.payload = payload;
   }
