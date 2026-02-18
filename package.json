@@ -1,5 +1,5 @@
 {
-  "name": "bunrpc",
+  "name": "bun-rpc",
   "version": "0.1.0",
   "description": "Type-safe RPC layer for Bun with optional React Query support",
   "module": "./src/index.ts",
@@ -11,7 +11,6 @@
     "./types": "./src/types.ts"
   },
   "files": [
-    "index.ts",
     "src",
     "README.md",
     "!src/**/*.test.ts"

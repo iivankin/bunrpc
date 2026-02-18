@@ -1,4 +1,4 @@
-# bunrpc
+# bun-rpc
 
 Type-safe RPC for Bun with Standard Schema validation, safe client results, and React Query integration.
 
@@ -14,7 +14,7 @@ Type-safe RPC for Bun with Standard Schema validation, safe client results, and 
 ## Installation
 
 ```bash
-bun add bunrpc
+bun add bun-rpc
 ```
 
 Optional dependency for React Query integration:
@@ -56,7 +56,7 @@ import {
   createBunRPCRoutes,
   createProcedure,
   createRouter,
-} from "bunrpc";
+} from "bun-rpc";
 import { CreateChatSchema } from "./schemas";
 
 const publicProcedure = createProcedure();
@@ -145,7 +145,7 @@ export type AppRouter = typeof rpc._router;
 ### 2) Use safe client API
 
 ```ts
-import { createClient, isAppError, isValidationError } from "bunrpc";
+import { createClient, isAppError, isValidationError } from "bun-rpc";
 import type { AppRouter } from "./server";
 
 const client = createClient<AppRouter>({
@@ -172,7 +172,7 @@ if (!result.ok) {
 ### 3) React Query integration (throws typed `RpcError`)
 
 ```ts
-import { createQueryClient } from "bunrpc/react";
+import { createQueryClient } from "bun-rpc/react";
 import type { AppRouter } from "./server";
 
 const rpc = createQueryClient<AppRouter>({
@@ -220,7 +220,7 @@ Common system codes:
 - `createClient()` - safe RPC client returning `RpcResult`
 - `isAppError(result)` - type guard for app errors in safe results
 - `isValidationError(result)` - type guard for `VALIDATION_ERROR` in safe results
-- `createQueryClient()` (`bunrpc/react`) - React Query integration
+- `createQueryClient()` (`bun-rpc/react`) - React Query integration
 - `RpcError<TPayload>` - typed error class used by React Query flow
 
-For advanced/internal utility types, import from `bunrpc/types`.
+For advanced/internal utility types, import from `bun-rpc/types`.

@@ -40,6 +40,6 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      #- run: bun publish --access public
-        #env:
-          #NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: bun publish --access public
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
