@@ -15,7 +15,7 @@ import { createQueryClient } from "@bunrpc/react";
 import type { AppRouter } from "./server";
 
 const rpc = createQueryClient<AppRouter>({
-  baseUrl: "/api",
+  baseUrl: "/api", // Default value
 });
 
 function Screen() {
