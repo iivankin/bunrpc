@@ -2,11 +2,11 @@
   "name": "bunrpc",
   "version": "0.1.0",
   "description": "Type-safe RPC layer for Bun with optional React Query support",
-  "module": "./index.ts",
-  "types": "./index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
   "type": "module",
   "exports": {
-    ".": "./index.ts",
+    ".": "./src/index.ts",
     "./react": "./src/react.ts",
     "./types": "./src/types.ts"
   },
