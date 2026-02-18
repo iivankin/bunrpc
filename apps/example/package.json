@@ -1,5 +1,5 @@
 {
-  "name": "@brpc/example",
+  "name": "@bunrpc/example",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,8 +7,8 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "@brpc/core": "workspace:*",
-    "@brpc/react": "workspace:*",
+    "@bunrpc/core": "workspace:*",
+    "@bunrpc/react": "workspace:*",
     "@tanstack/react-query": "5.90.21",
     "react": "19.1.1",
     "zod": "4.3.6"

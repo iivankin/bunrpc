@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createClient, isAppError } from "@brpc/core";
-import { createQueryClient, useRpcUtils } from "@brpc/react";
+import { createClient, isAppError } from "@bunrpc/core";
+import { createQueryClient, useRpcUtils } from "@bunrpc/react";
 import type { AppRouter } from "./server";
 
 const baseUrl = "http://localhost:3000/api";

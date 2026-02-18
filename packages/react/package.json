@@ -1,7 +1,7 @@
 {
-  "name": "@brpc/react",
+  "name": "@bunrpc/react",
   "version": "0.1.0",
-  "description": "React Query integration for @brpc/core",
+  "description": "React Query integration for @bunrpc/core",
   "module": "./src/index.ts",
   "types": "./src/index.ts",
   "type": "module",
@@ -24,7 +24,7 @@
     "prepublishOnly": "bun run check"
   },
   "dependencies": {
-    "@brpc/core": "^0.1.0"
+    "@bunrpc/core": "^0.1.0"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5",

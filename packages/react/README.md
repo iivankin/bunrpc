@@ -1,17 +1,17 @@
-# @brpc/react
+# @bunrpc/react
 
-React Query helpers for `@brpc/core`.
+React Query helpers for `@bunrpc/core`.
 
 ## Installation
 
 ```bash
-bun add @brpc/core @brpc/react @tanstack/react-query
+bun add @bunrpc/core @bunrpc/react @tanstack/react-query
 ```
 
 ## Usage
 
 ```ts
-import { createQueryClient } from "@brpc/react";
+import { createQueryClient } from "@bunrpc/react";
 import type { AppRouter } from "./server";
 
 const rpc = createQueryClient<AppRouter>({

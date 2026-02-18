@@ -4,8 +4,8 @@ Monorepo layout for Bun RPC packages.
 
 ## Workspace structure
 
-- `packages/core` -> `@brpc/core`
-- `packages/react` -> `@brpc/react`
+- `packages/core` -> `@bunrpc/core`
+- `packages/react` -> `@bunrpc/react`
 - `apps/example` -> local playground app
 
 ## Install

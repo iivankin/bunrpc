@@ -1,5 +1,5 @@
 {
-  "name": "@brpc/core",
+  "name": "@bunrpc/core",
   "version": "0.1.0",
   "description": "Type-safe RPC core for Bun",
   "module": "./src/index.ts",

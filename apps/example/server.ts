@@ -2,7 +2,7 @@ import {
   createBunRPCRoutes,
   createProcedure,
   createRouter,
-} from "@brpc/core";
+} from "@bunrpc/core";
 import * as z from "zod";
 
 const CreateChatSchema = z.object({

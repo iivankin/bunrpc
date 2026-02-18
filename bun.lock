@@ -6,10 +6,10 @@
       "name": "brpc",
     },
     "apps/example": {
-      "name": "@brpc/example",
+      "name": "@bunrpc/example",
       "dependencies": {
-        "@brpc/core": "workspace:*",
-        "@brpc/react": "workspace:*",
+        "@bunrpc/core": "workspace:*",
+        "@bunrpc/react": "workspace:*",
         "@tanstack/react-query": "5.90.21",
         "react": "19.1.1",
         "zod": "4.3.6",
@@ -21,7 +21,7 @@
       },
     },
     "packages/core": {
-      "name": "@brpc/core",
+      "name": "@bunrpc/core",
       "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "1.3.9",
@@ -29,10 +29,10 @@
       },
     },
     "packages/react": {
-      "name": "@brpc/react",
+      "name": "@bunrpc/react",
       "version": "0.1.0",
       "dependencies": {
-        "@brpc/core": "^0.1.0",
+        "@bunrpc/core": "^0.1.0",
       },
       "devDependencies": {
         "@tanstack/react-query": "5.90.21",
@@ -47,11 +47,11 @@
     },
   },
   "packages": {
-    "@brpc/core": ["@brpc/core@workspace:packages/core"],
+    "@bunrpc/core": ["@bunrpc/core@workspace:packages/core"],
 
-    "@brpc/example": ["@brpc/example@workspace:apps/example"],
+    "@bunrpc/example": ["@bunrpc/example@workspace:apps/example"],
 
-    "@brpc/react": ["@brpc/react@workspace:packages/react"],
+    "@bunrpc/react": ["@bunrpc/react@workspace:packages/react"],
 
     "@tanstack/query-core": ["@tanstack/query-core@5.90.20", "", {}, "sha512-OMD2HLpNouXEfZJWcKeVKUgQ5n+n3A2JFmBaScpNDUqSrQSjiveC7dKMe53uJUg1nDG16ttFPz2xfilz6i2uVg=="],
 

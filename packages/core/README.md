@@ -1,17 +1,17 @@
-# @brpc/core
+# @bunrpc/core
 
 Type-safe RPC core for Bun with Standard Schema validation and safe client results.
 
 ## Installation
 
 ```bash
-bun add @brpc/core
+bun add @bunrpc/core
 ```
 
 Optional package for React Query integration:
 
 ```bash
-bun add @brpc/react @tanstack/react-query
+bun add @bunrpc/react @tanstack/react-query
 ```
 
 ## Quick Start
@@ -23,7 +23,7 @@ import {
   createbrpcRoutes,
   createProcedure,
   createRouter,
-} from "@brpc/core";
+} from "@bunrpc/core";
 import * as z from "zod";
 
 const CreateChatSchema = z.object({
@@ -89,7 +89,7 @@ export type AppRouter = typeof rpc._router;
 ### 2) Use safe client API
 
 ```ts
-import { createClient, isAppError, isValidationError } from "@brpc/core";
+import { createClient, isAppError, isValidationError } from "@bunrpc/core";
 import type { AppRouter } from "./server";
 
 const client = createClient<AppRouter>({
@@ -113,10 +113,10 @@ if (!result.ok) {
 
 ### 3) React Query integration
 
-Use `@brpc/react`:
+Use `@bunrpc/react`:
 
 ```ts
-import { createQueryClient } from "@brpc/react";
+import { createQueryClient } from "@bunrpc/react";
 import type { AppRouter } from "./server";
 
 const rpc = createQueryClient<AppRouter>({ baseUrl: "/api" });
@@ -132,4 +132,4 @@ const rpc = createQueryClient<AppRouter>({ baseUrl: "/api" });
 - `isValidationError(result)`
 - `RpcError<TPayload>`
 
-For advanced utility types, import from `@brpc/core/types`.
+For advanced utility types, import from `@bunrpc/core/types`.
