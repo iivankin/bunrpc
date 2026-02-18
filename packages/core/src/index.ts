@@ -1,6 +1,6 @@
 // Core API exports
-export type { ClientConfig } from "./client";
-export { createClient, RpcError } from "./client";
+export type { ClientConfig, RpcError } from "./client";
+export { createClient, createRpcError, isRpcError } from "./client";
 export {
   createBunRPCRoutes,
   createProcedure,

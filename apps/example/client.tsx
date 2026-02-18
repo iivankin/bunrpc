@@ -29,7 +29,7 @@ function ChatList() {
   }
 
   if (query.isError) {
-    const error = query.error.payload;
+    const error = query.error;
 
     if (error.source === "app") {
       if (error.code === "UNAUTHORIZED") {
@@ -89,7 +89,7 @@ function CreateChat() {
       return null;
     }
 
-    const error = mutation.error.payload;
+    const error = mutation.error;
 
     if (error.source === "app") {
       if (error.code === "TITLE_TOO_LONG") {

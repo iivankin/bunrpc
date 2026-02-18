@@ -6,7 +6,13 @@ import type {
   UseQueryResult,
 } from "@tanstack/react-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createClient, type ClientConfig, RpcError } from "@bunrpc/core";
+import {
+  createClient,
+  createRpcError,
+  isRpcError,
+  type ClientConfig,
+  type RpcError,
+} from "@bunrpc/core";
 import {
   createSystemError,
   type AnyProcedure,
@@ -72,7 +78,7 @@ type InferQueryClient<T extends Router> = {
 // ============================================================================
 
 function createPathTraversalError(pathParts: string[]): RpcError {
-  return new RpcError(
+  return createRpcError(
     createSystemError(
       "BAD_RESPONSE",
       500,
@@ -117,16 +123,16 @@ export function createQueryClient<TRouter extends Router>(
       const result = await callSafeProcedure(pathParts, input);
 
       if (!result.ok) {
-        throw new RpcError(result.error);
+        throw createRpcError(result.error);
       }
 
       return result.data;
     } catch (error) {
-      if (error instanceof RpcError) {
+      if (isRpcError(error)) {
         throw error;
       }
 
-      throw new RpcError(
+      throw createRpcError(
         createSystemError("BAD_RESPONSE", 500, "Failed to execute procedure", {
           cause: String(error),
         })

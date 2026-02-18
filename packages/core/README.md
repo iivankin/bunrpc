@@ -1,15 +1,15 @@
 # @bunrpc/core
 
-Type-safe RPC for Bun with Standard Schema validation, safe client results, and first-class React Query integration via `@bunrpc/react`.
+Type-safe RPC core for Bun.
 
 ## Features
 
-- End-to-end type inference from your router
-- Middleware composition with context extension (`opts.next(...)`)
-- Typed app errors from middleware/handlers via `error({...})`
-- Safe client API (`{ ok: true, data } | { ok: false, error }`)
-- System errors included in type unions (`NETWORK_ERROR`, `VALIDATION_ERROR`, etc.)
-- React Query support with typed thrown errors (`RpcError<TPayload>`) through `@bunrpc/react`
+- End-to-end type inference from router to client
+- Middleware with context propagation via `next(...)`
+- App + system error unions per procedure
+- Safe client results (no throws in `createClient`)
+- Standard Schema input validation
+- React Query integration via `@bunrpc/react`
 
 ## Installation
 
@@ -158,9 +158,11 @@ function ChatList() {
   const query = rpc.chat.list.useQuery();
 
   if (query.error) {
-    if (query.error.payload.source === "app") {
-      // app-specific errors from your procedures
-      console.log(query.error.payload.code);
+    if (
+      query.error.source === "app" &&
+      query.error.code === "TITLE_TOO_LONG"
+    ) {
+      console.log(query.error.details?.max);
     } else {
       // system errors (network/validation/internal)
       console.log("Something went wrong");

@@ -21,8 +21,11 @@ const rpc = createQueryClient<AppRouter>({
 function Screen() {
   const query = rpc.chat.list.useQuery();
 
-  if (query.error?.payload.source === "app") {
-    console.log(query.error.payload.code);
+  if (
+    query.error?.source === "app" &&
+    query.error.code === "TITLE_TOO_LONG"
+  ) {
+    console.log(query.error.details?.max);
   }
 
   return null;

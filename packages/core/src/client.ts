@@ -27,30 +27,42 @@ export interface ClientConfig {
 // RPC Error
 // ============================================================================
 
-export class RpcError<TPayload extends RpcErrorUnion = RpcErrorUnion> extends Error {
-  payload: TPayload;
+const RPC_ERROR_MARKER = "__bunrpcRpcError" as const;
 
-  constructor(payload: TPayload) {
-    super(payload.message ?? payload.code);
-    this.name = "RpcError";
-    this.payload = payload;
+type RpcErrorShape<TPayload extends RpcErrorUnion> = {
+  readonly [RPC_ERROR_MARKER]: true;
+  source: TPayload["source"];
+  code: TPayload["code"];
+  status: number;
+  details: TPayload["details"];
+};
+
+export type RpcError<TPayload extends RpcErrorUnion = RpcErrorUnion> =
+  TPayload extends RpcErrorUnion ? Error & RpcErrorShape<TPayload> : never;
+
+export function createRpcError<TPayload extends RpcErrorUnion>(
+  payload: TPayload
+): RpcError<TPayload> {
+  const error = new Error(payload.message ?? payload.code) as RpcError<TPayload>;
+  error.name = "RpcError";
+
+  const target = error as unknown as Record<string, unknown>;
+  target[RPC_ERROR_MARKER] = true;
+  target.source = payload.source;
+  target.code = payload.code;
+  target.status = payload.status;
+  target.details = payload.details;
+
+  return error;
+}
+
+export function isRpcError(error: unknown): error is RpcError {
+  if (!(error instanceof Error)) {
+    return false;
   }
 
-  get source(): TPayload["source"] {
-    return this.payload.source;
-  }
-
-  get code(): TPayload["code"] {
-    return this.payload.code;
-  }
-
-  get status(): number {
-    return this.payload.status;
-  }
-
-  get details(): TPayload["details"] {
-    return this.payload.details;
-  }
+  const value = error as unknown as Record<string, unknown>;
+  return value[RPC_ERROR_MARKER] === true;
 }
 
 // ============================================================================
