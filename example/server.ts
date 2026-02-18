@@ -13,7 +13,7 @@ const chats: Array<{ id: string; title: string; ownerId: string }> = [];
 
 const publicProcedure = createProcedure();
 
-const authProcedure = publicProcedure.use(async ({ req, error, next }) => {
+const authProcedure = publicProcedure.use(({ req, error, next }) => {
   const authHeader = req.headers.get("authorization");
   if (!authHeader) {
     return error({

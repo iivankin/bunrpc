@@ -308,7 +308,7 @@ export interface Procedure<
   middlewares: Array<
     (
       ctx: ProcedureMiddlewareOptions<Record<string, unknown>>
-    ) => Promise<AnyProcedureNextResult | ProcedureErrorResult<AppRpcError>>
+    ) => MaybePromise<AnyProcedureNextResult | ProcedureErrorResult<AppRpcError>>
   >;
   handler: (
     ctx: TContext & ProcedureHelpers & { input: TInput }

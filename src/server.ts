@@ -36,7 +36,11 @@ interface ProcedureBuilder<TContext, TError extends AppRpcError = never> {
   /**
    * Add middleware that extends context
    */
-  use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<unknown>>(
+  use<
+    TFn extends (
+      opts: ProcedureMiddlewareOptions<TContext>
+    ) => MaybePromise<unknown>,
+  >(
     fn: TFn
   ): ProcedureBuilder<
     TContext &
@@ -102,7 +106,7 @@ interface ProcedureBuilderWithInput<
 
 type RuntimeMiddleware = (
   opts: ProcedureMiddlewareOptions<Record<string, unknown>>
-) => Promise<
+) => MaybePromise<
   | ProcedureNextResult<unknown, never, Record<string, unknown>>
   | ProcedureErrorResult<AppRpcError>
 >;
@@ -123,7 +127,11 @@ function createProcedureBuilder<TContext, TError extends AppRpcError>(
   middlewares: RuntimeMiddleware[]
 ): ProcedureBuilder<TContext, TError> {
   const builder = {
-    use<TFn extends (opts: ProcedureMiddlewareOptions<TContext>) => Promise<unknown>>(
+    use<
+      TFn extends (
+        opts: ProcedureMiddlewareOptions<TContext>
+      ) => MaybePromise<unknown>,
+    >(
       fn: TFn
     ): ProcedureBuilder<
       TContext &

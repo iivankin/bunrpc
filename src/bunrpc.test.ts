@@ -163,6 +163,59 @@ describe("bunrpc", () => {
       expect(payload).toEqual({ userId: "user_1" });
     });
 
+    test("supports sync middleware with error/next branches", async () => {
+      const authProcedure = createProcedure().use(({ req, error, next }) => {
+        const authHeader = req.headers.get("authorization");
+        if (!authHeader) {
+          return error({
+            code: "UNAUTHORIZED",
+            status: 401,
+          });
+        }
+
+        return next({ userId: authHeader });
+      });
+
+      const rpc = createBunRPCRoutes({
+        user: createRouter({
+          me: authProcedure.handler(({ userId }) => ({ userId })),
+        }),
+      });
+
+      const unauthReq = new Request("http://localhost/api/user/me", {
+        method: "POST",
+      }) as BunRequest<string>;
+
+      const unauthResponse = await rpc.routes["/api/user/me"]!(
+        unauthReq,
+        {} as never
+      );
+      const unauthPayload = await unauthResponse.json();
+
+      expect(unauthResponse.status).toBe(401);
+      expect(unauthPayload).toEqual({
+        source: "app",
+        code: "UNAUTHORIZED",
+        status: 401,
+      });
+
+      const authReq = new Request("http://localhost/api/user/me", {
+        method: "POST",
+        headers: {
+          authorization: "user_sync",
+        },
+      }) as BunRequest<string>;
+
+      const authResponse = await rpc.routes["/api/user/me"]!(
+        authReq,
+        {} as never
+      );
+      const authPayload = await authResponse.json();
+
+      expect(authResponse.status).toBe(200);
+      expect(authPayload).toEqual({ userId: "user_sync" });
+    });
+
     test("supports middleware next() timing pattern", async () => {
       const events: string[] = [];
 

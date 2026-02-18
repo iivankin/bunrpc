@@ -79,9 +79,10 @@ const loggedProcedure = publicProcedure.use(async (opts) => {
   return result;
 });
 
-// Middleware contract is strict:
+// Middleware:
 // - return opts.next(...) to continue
 // - or return error({...}) to stop with app error
+// - middleware can be sync or async
 
 const authProcedure = loggedProcedure.use(async ({ req, error, next }) => {
   const token = req.headers.get("authorization");
@@ -119,7 +120,7 @@ const chatRouter = createRouter({
 const rpc = createBunRPCRoutes(
   { chat: chatRouter },
   {
-    prefix: "/api",
+    prefix: "/api", // default value
     formatInternalServerError: (_error, event) => {
       return {
         message: "Unexpected server error",
@@ -148,7 +149,7 @@ import { createClient, isAppError } from "bunrpc";
 import type { AppRouter } from "./server";
 
 const client = createClient<AppRouter>({
-  baseUrl: "/api",
+  baseUrl: "/api", // default value
 });
 
 const result = await client.chat.create({ title: "Roadmap" });
@@ -166,15 +167,15 @@ if (!result.ok) {
 }
 ```
 
-If your frontend and API are on the same domain, use `baseUrl: "/api"` (or omit `baseUrl` entirely, since `"/api"` is the default).
-
 ### 3) React Query integration (throws typed `RpcError`)
 
 ```ts
 import { createQueryClient } from "bunrpc/react";
 import type { AppRouter } from "./server";
 
-const rpc = createQueryClient<AppRouter>({ baseUrl: "/api" });
+const rpc = createQueryClient<AppRouter>({
+  baseUrl: "/api", // default value
+});
 
 function ChatList() {
   const query = rpc.chat.list.useQuery();
