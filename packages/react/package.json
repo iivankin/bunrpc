@@ -1,0 +1,39 @@
+{
+  "name": "@brpc/react",
+  "version": "0.1.0",
+  "description": "React Query integration for @brpc/core",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "!src/**/*.test.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "check": "bun run typecheck && bun test",
+    "prepublishOnly": "bun run check"
+  },
+  "dependencies": {
+    "@brpc/core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5",
+    "react": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "5.90.21",
+    "@types/bun": "1.3.9",
+    "react": "19.1.1",
+    "typescript": "5.9.3"
+  }
+}

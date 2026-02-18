@@ -1,0 +1,32 @@
+{
+  "name": "@brpc/core",
+  "version": "0.1.0",
+  "description": "Type-safe RPC core for Bun",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./standard-schema": "./src/standard-schema.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "!src/**/*.test.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "check": "bun run typecheck && bun test",
+    "prepublishOnly": "bun run check"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.9",
+    "typescript": "5.9.3"
+  }
+}

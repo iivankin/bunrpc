@@ -1,42 +1,19 @@
 {
-  "name": "bun-rpc",
-  "version": "0.1.0",
-  "description": "Type-safe RPC layer for Bun with optional React Query support",
-  "module": "./src/index.ts",
-  "types": "./src/index.ts",
+  "name": "brpc-monorepo",
+  "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts",
-    "./react": "./src/react.ts",
-    "./types": "./src/types.ts"
-  },
-  "files": [
-    "src",
-    "README.md",
-    "!src/**/*.test.ts"
+  "workspaces": [
+    "packages/*",
+    "apps/*"
   ],
-  "sideEffects": false,
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
-    "test": "bun test",
-    "typecheck": "bunx tsc --noEmit",
-    "check": "bun run typecheck && bun test",
-    "prepublishOnly": "bun run check"
-  },
-  "devDependencies": {
-    "@tanstack/react-query": "5.90.21",
-    "@types/bun": "1.3.9",
-    "typescript": "5.9.3",
-    "zod": "4.3.6"
-  },
-  "peerDependencies": {
-    "@tanstack/react-query": "^5"
-  },
-  "peerDependenciesMeta": {
-    "@tanstack/react-query": {
-      "optional": true
-    }
+    "check": "bun run check:core && bun run check:react && bun run typecheck:example",
+    "check:core": "bun run --cwd packages/core check",
+    "check:react": "bun run --cwd packages/react check",
+    "typecheck": "bun run typecheck:core && bun run typecheck:react && bun run typecheck:example",
+    "typecheck:core": "bun run --cwd packages/core typecheck",
+    "typecheck:react": "bun run --cwd packages/react typecheck",
+    "typecheck:example": "bun run --cwd apps/example typecheck",
+    "test": "bun run --cwd packages/core test && bun run --cwd packages/react test"
   }
 }

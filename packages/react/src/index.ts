@@ -6,7 +6,7 @@ import type {
   UseQueryResult,
 } from "@tanstack/react-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createClient, type ClientConfig, RpcError } from "./client";
+import { createClient, type ClientConfig, RpcError } from "@bunrpc/core";
 import {
   createSystemError,
   type AnyProcedure,
@@ -16,7 +16,7 @@ import {
   type Router,
   type RpcErrorUnion,
   type RpcResult,
-} from "./types";
+} from "@bunrpc/core/types";
 
 // ============================================================================
 // Types

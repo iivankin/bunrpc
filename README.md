@@ -1,226 +1,36 @@
-# bun-rpc
+# brpc monorepo
 
-Type-safe RPC for Bun with Standard Schema validation, safe client results, and React Query integration.
+Monorepo layout for Bun RPC packages.
 
-## Features
+## Workspace structure
 
-- End-to-end type inference from your router
-- Middleware composition with context extension
-- Typed app errors from middleware/handlers via `error({...})`
-- Safe client API (`{ ok: true, data } | { ok: false, error }`)
-- System errors included in type unions (`NETWORK_ERROR`, `VALIDATION_ERROR`, etc.)
-- React Query support with typed thrown errors (`RpcError<TPayload>`)
+- `packages/core` -> `@brpc/core`
+- `packages/react` -> `@brpc/react`
+- `apps/example` -> local playground app
 
-## Installation
+## Install
 
 ```bash
-bun add bun-rpc
+bun install
 ```
 
-Optional dependency for React Query integration:
+## Validate all workspaces
 
 ```bash
-bun add @tanstack/react-query
+bun run check
 ```
 
-For `.input(...)`, use any validation library that implements Standard Schema.
+## Run example API
 
-## Schema examples (`./schemas.ts`)
-
-Zod:
-
-```ts
-import * as z from "zod";
-
-export const CreateChatSchema = z.object({
-  title: z.string().min(1),
-});
+```bash
+bun --cwd apps/example run server
 ```
 
-Valibot:
+## Publish packages
 
-```ts
-import * as v from "valibot";
-
-export const CreateChatSchema = v.object({
-  title: v.pipe(v.string(), v.minLength(1, "Title is required")),
-});
+```bash
+bun --cwd packages/core publish --access public
+bun --cwd packages/react publish --access public
 ```
 
-## Quick Start
-
-### 1) Define server procedures
-
-```ts
-import {
-  createBunRPCRoutes,
-  createProcedure,
-  createRouter,
-} from "bun-rpc";
-import { CreateChatSchema } from "./schemas";
-
-const publicProcedure = createProcedure();
-
-const loggedProcedure = publicProcedure.use(async (opts) => {
-  const start = Date.now();
-  const result = await opts.next();
-  const durationMs = Date.now() - start;
-
-  const meta = {
-    path: opts.path,
-    type: opts.type,
-    durationMs,
-  };
-
-  result.ok
-    ? console.log("OK request timing:", meta)
-    : console.error("Non-OK request timing:", meta);
-
-  return result;
-});
-
-// Middleware:
-// - return opts.next(...) to continue
-// - or return error({...}) to stop with app error
-// - middleware can be sync or async
-
-const authProcedure = loggedProcedure.use(async ({ req, error, next }) => {
-  const token = req.headers.get("authorization");
-  if (!token) {
-    return error({
-      code: "UNAUTHORIZED",
-      status: 401,
-      message: "Unauthorized",
-    });
-  }
-
-  return next({ userId: "user_1" });
-});
-
-const chatRouter = createRouter({
-  list: authProcedure.handler(({ userId }) => {
-    return [{ id: "chat_1", title: `General (${userId})` }];
-  }),
-  create: authProcedure
-    .input(CreateChatSchema)
-    .handler(({ input, userId, error }) => {
-      if (input.title.length > 120) {
-        return error({
-          code: "TITLE_TOO_LONG",
-          status: 400,
-          message: "Title is too long",
-          details: { max: 120 },
-        });
-      }
-
-      return { id: "chat_2", title: input.title, ownerId: userId };
-    }),
-});
-
-const rpc = createBunRPCRoutes(
-  { chat: chatRouter },
-  {
-    prefix: "/api", // default value
-    formatInternalServerError: (_error, event) => {
-      return {
-        message: "Unexpected server error",
-        details: {
-          requestPath: event.path,
-        },
-      };
-    },
-  }
-);
-
-Bun.serve({
-  port: 3000,
-  routes: {
-    ...rpc.routes,
-  },
-});
-
-export type AppRouter = typeof rpc._router;
-```
-
-### 2) Use safe client API
-
-```ts
-import { createClient, isAppError, isValidationError } from "bun-rpc";
-import type { AppRouter } from "./server";
-
-const client = createClient<AppRouter>({
-  baseUrl: "/api", // default value
-});
-
-const result = await client.chat.create({ title: "Roadmap" });
-
-if (!result.ok) {
-  if (isAppError(result)) {
-    // only errors returned by error({...}) from middleware/handler
-    if (result.error.code === "TITLE_TOO_LONG") {
-      console.log(result.error.details?.max);
-    }
-  } else if (isValidationError(result)) {
-    console.log(result.error.details.issues);
-  } else {
-    // system/transport errors -> show generic message
-    console.log("Something went wrong");
-  }
-}
-```
-
-### 3) React Query integration (throws typed `RpcError`)
-
-```ts
-import { createQueryClient } from "bun-rpc/react";
-import type { AppRouter } from "./server";
-
-const rpc = createQueryClient<AppRouter>({
-  baseUrl: "/api", // default value
-});
-
-function ChatList() {
-  const query = rpc.chat.list.useQuery();
-
-  if (query.error) {
-    if (query.error.payload.source === "app") {
-      // app-specific errors from your procedures
-      console.log(query.error.payload.code);
-    } else {
-      // system errors (network/validation/internal)
-      console.log("Something went wrong");
-    }
-  }
-
-  return <pre>{JSON.stringify(query.data, null, 2)}</pre>;
-}
-```
-
-## Error Model
-
-- App errors (`source: "app"`) come from `return error({...})` in middleware or handler.
-- System errors (`source: "system"`) are generated by transport/runtime layers.
-- App errors from shared middleware (for example `authProcedure`) are included in every downstream procedure's error union.
-
-Common system codes:
-
-- `NETWORK_ERROR`
-- `BAD_RESPONSE`
-- `METHOD_NOT_ALLOWED`
-- `INVALID_JSON`
-- `VALIDATION_ERROR` (typed details: `{ issues: Array<{ path: string; message: string }> }`)
-- `HTTP_ERROR`
-- `INTERNAL_SERVER_ERROR`
-
-## API Overview
-
-- `createProcedure()` - middleware/procedure builder
-- `createRouter()` - group procedures in a nested router
-- `createBunRPCRoutes()` - generate `Bun.serve()` route handlers with optional internal error formatter
-- `createClient()` - safe RPC client returning `RpcResult`
-- `isAppError(result)` - type guard for app errors in safe results
-- `isValidationError(result)` - type guard for `VALIDATION_ERROR` in safe results
-- `createQueryClient()` (`bun-rpc/react`) - React Query integration
-- `RpcError<TPayload>` - typed error class used by React Query flow
-
-For advanced/internal utility types, import from `bun-rpc/types`.
+The `apps` folder is intended for example/demo apps now and docs site in the future.
