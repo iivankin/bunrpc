@@ -6,6 +6,7 @@ import {
   createProcedure,
   createRouter,
   isAppError,
+  isValidationError,
 } from "./index";
 import type { StandardSchemaV1 } from "./types";
 
@@ -14,6 +15,7 @@ type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
   ? true
   : false;
 type Expect<T extends true> = T;
+const NEVER_TRUE = false as boolean;
 
 function createSingleStringFieldSchema<TKey extends string>(
   key: TKey
@@ -71,7 +73,7 @@ describe("bunrpc", () => {
 
     test("supports middleware and handler error helpers", async () => {
       const authProcedure = createProcedure().use(async ({ error, next }) => {
-        if (Math.random() < 0) {
+        if (NEVER_TRUE) {
           return next({ userId: "never" });
         }
 
@@ -494,7 +496,7 @@ describe("bunrpc", () => {
       const result = await client.api.create({ title: "" });
 
       expect(result.ok).toBe(false);
-      if (!result.ok && result.error.code === "VALIDATION_ERROR") {
+      if (isValidationError(result)) {
         expect(result.error.details.issues[0]).toEqual({
           path: "title",
           message: "Title is required",

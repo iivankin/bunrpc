@@ -32,30 +32,32 @@ type NormalizeMiddlewareContext<TContext> = [TContext] extends [never]
   ? Record<string, never>
   : TContext;
 
+type AnyMiddleware<TContext> = (
+  opts: ProcedureMiddlewareOptions<TContext>
+) => MaybePromise<unknown>;
+
+type MiddlewareNextContext<TFn extends AnyMiddleware<any>> =
+  NormalizeMiddlewareContext<
+    MiddlewareContextFromResult<
+      Extract<Awaited<ReturnType<TFn>>, AnyProcedureNextResult>
+    >
+  >;
+
+type MiddlewareError<TFn extends AnyMiddleware<any>> = ProcedureErrorFromResult<
+  Extract<Awaited<ReturnType<TFn>>, ProcedureErrorResult<AppRpcError>>
+>;
+
 interface ProcedureBuilder<TContext, TError extends AppRpcError = never> {
   /**
    * Add middleware that extends context
    */
   use<
-    TFn extends (
-      opts: ProcedureMiddlewareOptions<TContext>
-    ) => MaybePromise<unknown>,
+    TFn extends AnyMiddleware<TContext>,
   >(
     fn: TFn
   ): ProcedureBuilder<
-    TContext &
-      NormalizeMiddlewareContext<
-        MiddlewareContextFromResult<
-          Extract<Awaited<ReturnType<TFn>>, AnyProcedureNextResult>
-        >
-      >,
-    TError |
-      ProcedureErrorFromResult<
-        Extract<
-          Awaited<ReturnType<TFn>>,
-          ProcedureErrorResult<AppRpcError>
-        >
-      >
+    TContext & MiddlewareNextContext<TFn>,
+    TError | MiddlewareError<TFn>
   >;
 
   /**
@@ -127,46 +129,17 @@ function createProcedureBuilder<TContext, TError extends AppRpcError>(
   middlewares: RuntimeMiddleware[]
 ): ProcedureBuilder<TContext, TError> {
   const builder = {
-    use<
-      TFn extends (
-        opts: ProcedureMiddlewareOptions<TContext>
-      ) => MaybePromise<unknown>,
-    >(
+    use<TFn extends AnyMiddleware<TContext>>(
       fn: TFn
-    ): ProcedureBuilder<
-      TContext &
-        NormalizeMiddlewareContext<
-          MiddlewareContextFromResult<
-            Extract<Awaited<ReturnType<TFn>>, AnyProcedureNextResult>
-          >
-        >,
-      TError |
-        ProcedureErrorFromResult<
-          Extract<
-            Awaited<ReturnType<TFn>>,
-            ProcedureErrorResult<AppRpcError>
-          >
-        >
-    > {
+    ): ProcedureBuilder<TContext & MiddlewareNextContext<TFn>, TError | MiddlewareError<TFn>> {
       const nextBuilder = createProcedureBuilder([
         ...middlewares,
         fn as RuntimeMiddleware,
       ]);
 
       return nextBuilder as unknown as ProcedureBuilder<
-        TContext &
-          NormalizeMiddlewareContext<
-            MiddlewareContextFromResult<
-              Extract<Awaited<ReturnType<TFn>>, AnyProcedureNextResult>
-            >
-          >,
-        TError |
-          ProcedureErrorFromResult<
-            Extract<
-              Awaited<ReturnType<TFn>>,
-              ProcedureErrorResult<AppRpcError>
-            >
-          >
+        TContext & MiddlewareNextContext<TFn>,
+        TError | MiddlewareError<TFn>
       >;
     },
 

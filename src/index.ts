@@ -1,8 +1,5 @@
-// Server exports
-
+// Core API exports
 export type { ClientConfig } from "./client";
-
-// Client exports
 export { createClient, RpcError } from "./client";
 export {
   createBunRPCRoutes,
@@ -14,26 +11,18 @@ export type {
   CreateBunRPCRoutesOptions,
 } from "./server";
 
-// Type exports
+// Common type exports
 export type {
   AppRpcError,
-  AnyProcedure,
-  BaseContext,
-  BunRPCRoutes,
   InferClient,
   InferSchema,
   InferSchemaInput,
   InferSchemaOutput,
-  ProcedureClientError,
-  ProcedureResult,
-  Procedure,
   RpcResult,
+  SystemRpcError,
+  SystemRpcErrorCode,
   ValidationErrorDetails,
   ValidationIssue,
-  SystemRpcError,
-  SystemErrorDetails,
-  SystemRpcErrorCode,
-  Router,
 } from "./types";
-export { isAppError } from "./types";
+export { isAppError, isValidationError } from "./types";
 export type { StandardSchemaV1 } from "./standard-schema";

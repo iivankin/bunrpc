@@ -262,6 +262,16 @@ export function isAppError<TData, TError extends RpcErrorUnion>(
   return !result.ok && result.error.source === "app";
 }
 
+export function isValidationError<TData, TError extends RpcErrorUnion>(
+  result: RpcResult<TData, TError>
+): result is RpcResultErr<Extract<TError, SystemRpcError<"VALIDATION_ERROR">>> {
+  return (
+    !result.ok &&
+    result.error.source === "system" &&
+    result.error.code === "VALIDATION_ERROR"
+  );
+}
+
 export type MaybePromise<T> = T | Promise<T>;
 
 export type ProcedureErrorFromResult<TResult> = Extract<

@@ -113,6 +113,47 @@ function normalizeValidationDetails(details: unknown): ValidationErrorDetails {
   return { issues };
 }
 
+function createParsedAppError(
+  code: string,
+  status: number,
+  message: string | undefined,
+  details: unknown
+): AppRpcError {
+  const appError: AppRpcError =
+    message === undefined
+      ? {
+          source: "app",
+          code,
+          status,
+        }
+      : {
+          source: "app",
+          code,
+          status,
+          message,
+        };
+
+  return withDetails(appError, details);
+}
+
+function createParsedSystemError(
+  code: SystemRpcErrorCode,
+  status: number,
+  message: string,
+  details: unknown
+): SystemRpcError {
+  if (code === "VALIDATION_ERROR") {
+    return createSystemError(
+      "VALIDATION_ERROR",
+      status,
+      message,
+      normalizeValidationDetails(details)
+    );
+  }
+
+  return createSystemError(code, status, message, details);
+}
+
 export function parseErrorPayload(
   payload: unknown,
   fallback: SystemRpcError
@@ -134,51 +175,19 @@ export function parseErrorPayload(
   const details = data.details;
 
   if (data.source === "app" && code) {
-    const appError: AppRpcError = {
-      source: "app",
-      code,
-      status,
-      message: appMessage,
-    };
-
-    return withDetails(appError, details);
+    return createParsedAppError(code, status, appMessage, details);
   }
 
   if (data.source === "system" && code && isSystemErrorCode(code)) {
-    if (code === "VALIDATION_ERROR") {
-      return createSystemError(
-        "VALIDATION_ERROR",
-        status,
-        message,
-        normalizeValidationDetails(details)
-      );
-    }
-
-    return createSystemError(code, status, message, details);
+    return createParsedSystemError(code, status, message, details);
   }
 
   if (!data.source && code && !isSystemErrorCode(code)) {
-    const appError: AppRpcError = {
-      source: "app",
-      code,
-      status,
-      message: appMessage,
-    };
-
-    return withDetails(appError, details);
+    return createParsedAppError(code, status, appMessage, details);
   }
 
   if (code && isSystemErrorCode(code)) {
-    if (code === "VALIDATION_ERROR") {
-      return createSystemError(
-        "VALIDATION_ERROR",
-        status,
-        message,
-        normalizeValidationDetails(details)
-      );
-    }
-
-    return createSystemError(code, status, message, details);
+    return createParsedSystemError(code, status, message, details);
   }
 
   return createSystemError(

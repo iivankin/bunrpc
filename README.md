@@ -145,7 +145,7 @@ export type AppRouter = typeof rpc._router;
 ### 2) Use safe client API
 
 ```ts
-import { createClient, isAppError } from "bunrpc";
+import { createClient, isAppError, isValidationError } from "bunrpc";
 import type { AppRouter } from "./server";
 
 const client = createClient<AppRouter>({
@@ -160,6 +160,8 @@ if (!result.ok) {
     if (result.error.code === "TITLE_TOO_LONG") {
       console.log(result.error.details?.max);
     }
+  } else if (isValidationError(result)) {
+    console.log(result.error.details.issues);
   } else {
     // system/transport errors -> show generic message
     console.log("Something went wrong");
@@ -217,5 +219,8 @@ Common system codes:
 - `createBunRPCRoutes()` - generate `Bun.serve()` route handlers with optional internal error formatter
 - `createClient()` - safe RPC client returning `RpcResult`
 - `isAppError(result)` - type guard for app errors in safe results
+- `isValidationError(result)` - type guard for `VALIDATION_ERROR` in safe results
 - `createQueryClient()` (`bunrpc/react`) - React Query integration
 - `RpcError<TPayload>` - typed error class used by React Query flow
+
+For advanced/internal utility types, import from `bunrpc/types`.
