@@ -83,6 +83,7 @@ const loggedProcedure = publicProcedure.use(async (opts) => {
 // - return opts.next(...) to continue
 // - or return error({...}) to stop with app error
 // - middleware can be sync or async
+// - for cookies use req.cookies (Bun CookieMap)
 
 const authProcedure = loggedProcedure.use(({ req, error, next }) => {
   const token = req.headers.get("authorization");
@@ -95,6 +96,17 @@ const authProcedure = loggedProcedure.use(({ req, error, next }) => {
   }
 
   return next({ userId: "user_1" });
+});
+
+// Bun CookieMap helpers are available on req.cookies.
+// Bun automatically reflects set/delete calls into Set-Cookie response headers.
+const sessionProcedure = publicProcedure.use(({ req, next }) => {
+  if (!req.cookies.has("session")) {
+    req.cookies.set("session", "session_1", { path: "/", httpOnly: true });
+  }
+
+  req.cookies.delete("legacy_session", { path: "/" });
+  return next();
 });
 
 const chatRouter = createRouter({
@@ -248,6 +260,7 @@ Common system codes:
 - `createProcedure()` - middleware/procedure builder
 - `createRouter()` - group procedures in a nested router
 - `createBunRPCRoutes()` - generate `Bun.serve()` route handlers with optional internal error formatter
+- cookies: use Bun `req.cookies` (`CookieMap`) in middleware/handlers
 - `createClient()` - safe RPC client returning `RpcResult`
 - `isAppError(result)` - type guard for app errors in safe results
 - `isValidationError(result)` - type guard for `VALIDATION_ERROR` in safe results

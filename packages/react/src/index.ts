@@ -1,11 +1,19 @@
 import type {
+  InfiniteData,
   QueryKey,
+  UseInfiniteQueryOptions,
+  UseInfiniteQueryResult,
   UseMutationOptions,
   UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   createClient,
   createRpcError,
@@ -38,6 +46,52 @@ type MutationOptions<TInput, TOutput, TError> = Omit<
   "mutationFn"
 >;
 
+type InfiniteQueryOptions<TOutput, TError, TPageParam> = Omit<
+  UseInfiniteQueryOptions<
+    TOutput,
+    TError,
+    InfiniteData<TOutput, TPageParam>,
+    QueryKey,
+    TPageParam
+  >,
+  "queryKey" | "queryFn" | "initialPageParam" | "getNextPageParam"
+> & {
+  initialCursor?: TPageParam;
+  getNextCursor: NonNullable<
+    UseInfiniteQueryOptions<
+      TOutput,
+      TError,
+      InfiniteData<TOutput, TPageParam>,
+      QueryKey,
+      TPageParam
+    >["getNextPageParam"]
+  >;
+};
+
+type CursorPageParam<TInput> = TInput extends { cursor?: infer TCursor }
+  ? TCursor | undefined
+  : never;
+
+type InfiniteQueryHook<
+  TInput,
+  TOutput,
+  TErrorPayload extends RpcErrorUnion,
+> = TInput extends Record<string, unknown>
+  ? "cursor" extends keyof TInput
+    ? (
+        input: Omit<TInput, "cursor">,
+        options: InfiniteQueryOptions<
+          TOutput,
+          RpcError<TErrorPayload>,
+          CursorPageParam<TInput>
+        >
+      ) => UseInfiniteQueryResult<
+        InfiniteData<TOutput, CursorPageParam<TInput>>,
+        RpcError<TErrorPayload>
+      >
+    : never
+  : never;
+
 interface QueryHooks<
   TInput,
   TOutput,
@@ -55,6 +109,8 @@ interface QueryHooks<
   useMutation: (
     options?: MutationOptions<TInput, TOutput, RpcError<TErrorPayload>>
   ) => UseMutationResult<TOutput, RpcError<TErrorPayload>, TInput>;
+
+  useInfiniteQuery: InfiniteQueryHook<TInput, TOutput, TErrorPayload>;
 
   getQueryKey: TInput extends undefined
     ? () => QueryKey
@@ -84,6 +140,23 @@ function createPathTraversalError(pathParts: string[]): RpcError {
       500,
       `Invalid procedure path: ${pathParts.join(".") || "(root)"}`
     )
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function buildInfiniteQueryInput(
+  input: unknown,
+  pageParam: unknown
+): Record<string, unknown> {
+  if (isRecord(input)) {
+    return { ...input, cursor: pageParam };
+  }
+
+  throw new Error(
+    "useInfiniteQuery requires object input with optional `cursor`"
   );
 }
 
@@ -149,7 +222,7 @@ export function createQueryClient<TRouter extends Router>(
   }
 
   function createProxy(pathParts: string[]): unknown {
-    const hooks: QueryHooks<unknown, unknown, RpcErrorUnion> = {
+    const hooks = {
       useQuery: (
         inputOrOptions?: unknown,
         maybeOptions?: QueryOptions<unknown, RpcError<RpcErrorUnion>>
@@ -177,6 +250,26 @@ export function createQueryClient<TRouter extends Router>(
         });
       },
 
+      useInfiniteQuery: <TPageParam>(
+        input: unknown,
+        options: InfiniteQueryOptions<
+          unknown,
+          RpcError<RpcErrorUnion>,
+          TPageParam
+        >
+      ) => {
+        const { initialCursor, getNextCursor, ...queryOptions } = options;
+
+        return useInfiniteQuery({
+          queryKey: buildQueryKey(pathParts, input),
+          queryFn: ({ pageParam }) =>
+            rpcFetch(pathParts, buildInfiniteQueryInput(input, pageParam as TPageParam)),
+          initialPageParam: initialCursor as TPageParam,
+          getNextPageParam: getNextCursor,
+          ...queryOptions,
+        });
+      },
+
       getQueryKey: (input?: unknown) => buildQueryKey(pathParts, input),
     };
 
@@ -195,7 +288,7 @@ export function createQueryClient<TRouter extends Router>(
 }
 
 function isQueryOptions(obj: unknown): obj is QueryOptions<unknown, RpcError> {
-  if (!obj || typeof obj !== "object") return false;
+  if (!isRecord(obj)) return false;
 
   const optionKeys = [
     "enabled",

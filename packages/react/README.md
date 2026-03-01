@@ -31,3 +31,19 @@ function Screen() {
   return null;
 }
 ```
+
+## Infinite queries
+
+`useInfiniteQuery` is available for procedures whose input includes a `cursor` field.
+
+`pageParam` is always merged into the procedure input as `cursor`, so paginated procedures should accept an object input with optional `cursor`.
+
+```ts
+const feedQuery = rpc.feed.list.useInfiniteQuery(
+  { limit: 20 },
+  {
+    getNextCursor: (lastPage) => lastPage.nextCursor,
+    // initialCursor: "cursor_0", // optional
+  }
+);
+```
