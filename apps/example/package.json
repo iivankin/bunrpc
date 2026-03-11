@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@bunrpc/core": "workspace:*",
+    "@bunrpc/mcp": "workspace:*",
     "@bunrpc/openapi": "workspace:*",
     "@bunrpc/react": "workspace:*",
     "@tanstack/react-query": "5.90.21",

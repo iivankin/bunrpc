@@ -26,6 +26,7 @@ import {
   createSystemError,
   type AnyProcedure,
   type ProcedureClientError,
+  type ProcedureHttpExposed,
   type ProcedureInput,
   type ProcedureOutput,
   type Router,
@@ -172,7 +173,11 @@ interface QueryHooks<
 }
 
 type InferQueryClient<T extends object> = {
-  [K in Extract<keyof T, string>]: T[K] extends AnyProcedure
+  [K in keyof T as T[K] extends AnyProcedure
+    ? ProcedureHttpExposed<T[K]> extends false
+      ? never
+      : K
+    : K]: T[K] extends AnyProcedure
     ? QueryHooks<
         ProcedureInput<T[K]>,
         ProcedureOutput<T[K]>,

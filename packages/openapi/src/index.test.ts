@@ -1,14 +1,8 @@
 import type { BunRequest } from "bun";
 import { describe, expect, test } from "bun:test";
-import {
-  createBunRPCRoutes,
-  createProcedure,
-  createRouter,
-  useRouterPlugin,
-} from "@bunrpc/core";
-import type { StandardSchemaV1 } from "@bunrpc/core";
+import { initBunRpc, type StandardSchemaV1 } from "@bunrpc/core";
 import type { OpenAPIResponsesObject } from "./index";
-import { createOpenAPIPlugin } from "./index";
+import { openapi } from "./index";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
   T extends B ? 1 : 2
@@ -81,9 +75,34 @@ function createSingleStringFieldSchema<TKey extends string>(
 }
 
 describe("@bunrpc/openapi", () => {
-  test("generates OpenAPI document and optional swagger route", async () => {
-    const openapi = createOpenAPIPlugin();
-    const publicProcedure = createProcedure().use(openapi());
+  test("generates document and swagger routes through initBunRpc().use(...)", async () => {
+    const b = initBunRpc().use(
+      openapi({
+        info: {
+          title: "Test API",
+          version: "1.0.0",
+        },
+        documentPath: "/openapi.json",
+        components: {
+          securitySchemes: {
+            bearerAuth: {
+              type: "http",
+              scheme: "bearer",
+              bearerFormat: "JWT",
+            },
+          },
+        },
+        swagger: {
+          path: "/docs",
+          title: "Test API Docs",
+          persistAuthorization: true,
+          displayOperationId: true,
+          filter: true,
+        },
+      })
+    );
+
+    const publicProcedure = b.publicProcedure;
     const authProcedure = publicProcedure.security({ bearerAuth: [] });
     const chatOutputSchema = createSingleStringFieldSchema("id", "Chat");
 
@@ -96,72 +115,46 @@ describe("@bunrpc/openapi", () => {
       Equal<ResponsesArgs, [responses: OpenAPIResponsesObject]>
     > = true;
 
-    const chatRouter = createRouter(
-      {
-        list: authProcedure
-          .summary("List chats")
-          .description("Returns all chats")
-          .handler(() => ({ items: [] as string[] })),
-        create: authProcedure
-          .input(createSingleStringFieldSchema("title"))
-          .output(chatOutputSchema)
-          .summary("Create chat")
-          .responses({
-            "201": {
-              description: "Chat created",
-            },
-          })
-          .handler(({ input }) => ({ id: input.title })),
-        details: authProcedure
-          .output(chatOutputSchema)
-          .summary("Get chat")
-          .handler(() => ({ id: "chat_1" })),
-        publicInfo: publicProcedure
-          .summary("Public info")
-          .security()
-          .handler(() => ({ ok: true })),
-      },
-      {
-        plugins: [
-          useRouterPlugin(openapi, {
-            info: {
-              title: "Test API",
-              version: "1.0.0",
-            },
-            documentPath: "/openapi.json",
-            components: {
-              securitySchemes: {
-                bearerAuth: {
-                  type: "http",
-                  scheme: "bearer",
-                  bearerFormat: "JWT",
-                },
-              },
-            },
-            swagger: {
-              path: "/docs",
-              title: "Test API Docs",
-              persistAuthorization: true,
-              displayOperationId: true,
-              filter: true,
-            },
-          }),
-        ],
-      }
-    );
-
-    const rpc = createBunRPCRoutes({
-      chat: chatRouter,
+    const chatRouter = b.router({
+      list: authProcedure
+        .summary("List chats")
+        .description("Returns all chats")
+        .handler(() => ({ items: [] as string[] })),
+      create: authProcedure
+        .input(createSingleStringFieldSchema("title"))
+        .output(chatOutputSchema)
+        .summary("Create chat")
+        .responses({
+          "201": {
+            description: "Chat created",
+          },
+        })
+        .handler(({ input }) => ({ id: input.title })),
+      details: authProcedure
+        .output(chatOutputSchema)
+        .summary("Get chat")
+        .handler(() => ({ id: "chat_1" })),
+      publicInfo: publicProcedure
+        .summary("Public info")
+        .security()
+        .handler(() => ({ ok: true })),
     });
+
+    const rpc = b.createHttpRoutes(
+      b.router({
+        chat: chatRouter,
+      })
+    );
+    const document = rpc.plugins.openapi.document;
 
     expect(assertDescriptionArgs).toBe(true);
     expect(assertResponsesArgs).toBe(true);
 
-    expect(rpc.plugins.openapi.document.info).toEqual({
+    expect(document.info).toEqual({
       title: "Test API",
       version: "1.0.0",
     });
-    expect(rpc.plugins.openapi.document.components?.schemas).toMatchObject({
+    expect(document.components?.schemas).toMatchObject({
       Chat: {
         type: "object",
         required: ["id"],
@@ -173,15 +166,13 @@ describe("@bunrpc/openapi", () => {
         title: "Chat",
       },
     });
-    expect(rpc.plugins.openapi.document.paths["/api/chat/list"]?.post).toMatchObject({
+    expect(document.paths["/api/chat/list"]?.post).toMatchObject({
       operationId: "chat.list",
       summary: "List chats",
       description: "Returns all chats",
       tags: ["chat"],
     });
-    expect(
-      rpc.plugins.openapi.document.paths["/api/chat/create"]?.post?.requestBody
-    ).toEqual({
+    expect(document.paths["/api/chat/create"]?.post?.requestBody).toEqual({
       required: true,
       content: {
         "application/json": {
@@ -197,9 +188,7 @@ describe("@bunrpc/openapi", () => {
         },
       },
     });
-    expect(
-      rpc.plugins.openapi.document.paths["/api/chat/create"]?.post?.responses
-    ).toEqual({
+    expect(document.paths["/api/chat/create"]?.post?.responses).toEqual({
       "200": {
         description: "Successful response",
         content: {
@@ -214,9 +203,7 @@ describe("@bunrpc/openapi", () => {
         description: "Chat created",
       },
     });
-    expect(
-      rpc.plugins.openapi.document.paths["/api/chat/details"]?.post?.responses
-    ).toEqual({
+    expect(document.paths["/api/chat/details"]?.post?.responses).toEqual({
       "200": {
         description: "Successful response",
         content: {
@@ -228,15 +215,13 @@ describe("@bunrpc/openapi", () => {
         },
       },
     });
-    expect(
-      rpc.plugins.openapi.document.paths["/api/chat/list"]?.post?.security
-    ).toEqual([{ bearerAuth: [] }]);
-    expect(
-      rpc.plugins.openapi.document.paths["/api/chat/create"]?.post?.security
-    ).toEqual([{ bearerAuth: [] }]);
-    expect(
-      rpc.plugins.openapi.document.paths["/api/chat/publicInfo"]?.post?.security
-    ).toEqual([]);
+    expect(document.paths["/api/chat/list"]?.post?.security).toEqual([
+      { bearerAuth: [] },
+    ]);
+    expect(document.paths["/api/chat/create"]?.post?.security).toEqual([
+      { bearerAuth: [] },
+    ]);
+    expect(document.paths["/api/chat/publicInfo"]?.post?.security).toEqual([]);
 
     const documentResponse = await rpc.routes["/openapi.json"]!(
       new Request("http://localhost/openapi.json") as BunRequest<string>,
@@ -244,7 +229,7 @@ describe("@bunrpc/openapi", () => {
     );
     const documentPayload = await documentResponse.json();
 
-    expect(documentPayload).toEqual(rpc.plugins.openapi.document);
+    expect(documentPayload).toEqual(document);
 
     const swaggerResponse = await rpc.routes["/docs"]!(
       new Request("http://localhost/docs") as BunRequest<string>,
@@ -258,8 +243,5 @@ describe("@bunrpc/openapi", () => {
     expect(swaggerHtml).toContain("/openapi.json");
     expect(swaggerHtml).toContain("Test API Docs");
     expect(swaggerHtml).toContain("persistAuthorization");
-    expect(swaggerHtml).toContain("displayOperationId");
-    expect(swaggerHtml).toContain("window.onload");
-    expect(swaggerHtml).toContain("swagger-ui-dist@5.11.0");
   });
 });

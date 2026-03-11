@@ -95,22 +95,6 @@ const ANSI = {
   red: "\u001B[31m",
 } as const;
 
-function getNodeEnv(): string | undefined {
-  return (
-    globalThis as typeof globalThis & {
-      process?: {
-        env?: {
-          NODE_ENV?: string;
-        };
-      };
-    }
-  ).process?.env?.NODE_ENV;
-}
-
-function resolveClientLogging(log: boolean | undefined): boolean {
-  return log ?? getNodeEnv() !== "production";
-}
-
 function isBrowserConsole(): boolean {
   const globalScope = globalThis as typeof globalThis & {
     document?: object;
@@ -318,7 +302,7 @@ export function createClient<TRouter extends Router>(
     headers = {},
     log,
   } = config;
-  const shouldLog = resolveClientLogging(log);
+  const shouldLog = log ?? process.env.NODE_ENV !== "production";
 
   async function callProcedure(
     pathParts: string[],

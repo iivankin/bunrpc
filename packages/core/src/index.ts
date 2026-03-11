@@ -1,25 +1,20 @@
-// Core API exports
 export type { ClientConfig, RpcError } from "./client";
 export { createClient, createRpcError, isRpcError } from "./client";
-export { definePlugin, useRouterPlugin } from "./plugin";
-export {
-  createBunRPCRoutes,
-  createProcedure,
-  createRouter,
-} from "./server";
+export { createHttpRoutes, initBunRpc } from "./server";
 export type {
+  BunRPCApp,
   BunRPCRouteErrorEvent,
-  CreateBunRPCRoutesOptions,
-  CreateRouterOptions,
+  InitBunRpcOptions,
 } from "./server";
 
-// Common type exports
 export type {
+  AnyBunRPCPlugin,
   AppRpcError,
+  BaseContext,
   BunRPCPlugin,
-  BunRPCPluginDefinition,
+  BunRPCPluginInvokeProcedureOptions,
+  BunRPCPluginInvokeProcedureResult,
   BunRPCPluginProcedureInfo,
-  BunRPCPluginProcedureMethods,
   BunRPCPluginSetupContext,
   BunRPCPluginSetupResult,
   BunRPCRouteHandler,
@@ -28,16 +23,23 @@ export type {
   InferSchema,
   InferSchemaInput,
   InferSchemaOutput,
+  MaybePromise,
+  PluginContextExtensions,
   PluginExtension,
+  PluginHandlerMethodPatch,
+  PluginMethods,
+  PluginName,
+  PluginOptions,
   PluginProcedureMeta,
-  PluginRouterOptions,
+  PluginRequestSource,
+  ProcedureHttpExposed,
   ProcedurePluginEntry,
-  ProcedurePluginUse,
-  RpcResult,
+  Router,
   RouterPluginExtensions,
-  RouterPluginUse,
+  RpcResult,
   SystemRpcError,
   SystemRpcErrorCode,
+  UnionToIntersection,
   ValidationErrorDetails,
   ValidationIssue,
 } from "./types";

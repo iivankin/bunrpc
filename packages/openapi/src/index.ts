@@ -1,4 +1,3 @@
-import { definePlugin } from "@bunrpc/core";
 import type { BunRPCPlugin, StandardSchemaV1 } from "@bunrpc/core";
 import type {
   OpenAPIObject,
@@ -29,10 +28,14 @@ interface StandardSchemaWithJSONSchema extends StandardSchemaV1 {
 
 interface ResolvedSwaggerOptions extends Required<SwaggerUIOptions> {}
 
-type OpenAPIProcedureMethods = {
-  operationId: (operationId: string) => Pick<OpenAPIProcedureMeta, "operationId">;
+export interface OpenAPIProcedureMethods {
+  operationId: (
+    operationId: string
+  ) => Pick<OpenAPIProcedureMeta, "operationId">;
   summary: (summary: string) => Pick<OpenAPIProcedureMeta, "summary">;
-  description: (description: string) => Pick<OpenAPIProcedureMeta, "description">;
+  description: (
+    description: string
+  ) => Pick<OpenAPIProcedureMeta, "description">;
   tags: (...tags: string[]) => Pick<OpenAPIProcedureMeta, "tags">;
   deprecated: (
     deprecated?: boolean
@@ -46,7 +49,7 @@ type OpenAPIProcedureMethods = {
   responses: (
     responses: OpenAPIResponsesObject
   ) => Pick<OpenAPIProcedureMeta, "responses">;
-};
+}
 
 export type {
   OpenAPIComponentsObject,
@@ -149,27 +152,24 @@ function extractOutputJSONSchema(
   return extractJSONSchema(schema, "output");
 }
 
-function createDefaultSuccessResponse(
-  outputSchema: unknown | undefined
-) {
+function createDefaultSuccessResponse(outputSchema: unknown | undefined) {
   return {
     description: "Successful response",
     content: {
       "application/json": {
-        schema: isRecord(outputSchema) || isReferenceObject(outputSchema)
-          ? outputSchema
-          : {
-              type: "object",
-              additionalProperties: true,
-            },
+        schema:
+          isRecord(outputSchema) || isReferenceObject(outputSchema)
+            ? outputSchema
+            : {
+                type: "object",
+                additionalProperties: true,
+              },
       },
     },
   };
 }
 
-function isReferenceObject(
-  value: unknown
-): value is OpenAPIReferenceObject {
+function isReferenceObject(value: unknown): value is OpenAPIReferenceObject {
   return isRecord(value) && typeof value.$ref === "string";
 }
 
@@ -308,16 +308,12 @@ function createOutputSchemaRegistry(
     fullPath: string;
     outputSchema?: StandardSchemaV1;
   }>,
-  existingSchemas:
-    | OpenAPIPluginOptions["components"]
-    | undefined
+  components: OpenAPIPluginOptions["components"] | undefined
 ): {
   componentsSchemas: NonNullable<OpenAPIPluginOptions["components"]>["schemas"];
   resolvedOutputSchemasByPath: Map<string, unknown>;
 } {
-  const existingSchemaNames = new Set(
-    Object.keys(existingSchemas?.schemas ?? {})
-  );
+  const existingSchemaNames = new Set(Object.keys(components?.schemas ?? {}));
   const extractedOutputSchemasByPath = new Map<string, unknown>();
   const candidatesByTitle = new Map<
     string,
@@ -426,12 +422,13 @@ function createOperation(
             ...createDefaultRequestBody(),
             content: {
               "application/json": {
-                schema: isRecord(extractedInputSchema)
-                  ? extractedInputSchema
-                  : {
-                      type: "object",
-                      additionalProperties: true,
-                    },
+                schema:
+                  isRecord(extractedInputSchema)
+                    ? extractedInputSchema
+                    : {
+                        type: "object",
+                        additionalProperties: true,
+                      },
               },
             },
           }
@@ -543,15 +540,19 @@ function createSwaggerHtml(
 </html>`;
 }
 
-export function createOpenAPIPlugin(): BunRPCPlugin<
+export function openapi(
+  options: OpenAPIPluginOptions
+): BunRPCPlugin<
   "openapi",
-  OpenAPIProcedureMethods,
   OpenAPIPluginOptions,
+  OpenAPIProcedureMethods,
+  OpenAPIProcedureMeta,
   { document: OpenAPIObject }
 > {
-  return definePlugin({
+  return {
     name: "openapi",
-    procedure: {
+    options,
+    methods: {
       operationId: (operationId) => ({ operationId }),
       summary: (summary) => ({ summary }),
       description: (description) => ({ description }),
@@ -561,13 +562,16 @@ export function createOpenAPIPlugin(): BunRPCPlugin<
       requestBody: (requestBody) => ({ requestBody }),
       responses: (responses) => ({ responses }),
     },
-    setup: ({ options, procedures }) => {
-      const documentPath = options.documentPath ?? DEFAULT_DOCUMENT_PATH;
-      const outputSchemaRegistry = createOutputSchemaRegistry(
-        procedures,
-        options.components
+    setup: ({ options: pluginOptions, procedures }) => {
+      const httpProcedures = procedures.filter(
+        (procedure) => procedure.httpExposed
       );
-      const paths = procedures.reduce<OpenAPIObject["paths"]>(
+      const documentPath = pluginOptions.documentPath ?? DEFAULT_DOCUMENT_PATH;
+      const outputSchemaRegistry = createOutputSchemaRegistry(
+        httpProcedures,
+        pluginOptions.components
+      );
+      const paths = httpProcedures.reduce<OpenAPIObject["paths"]>(
         (acc, procedure) => {
           acc[procedure.fullPath] = {
             post: createOperation(
@@ -577,7 +581,7 @@ export function createOpenAPIPlugin(): BunRPCPlugin<
                 procedure.fullPath
               ),
               procedure.meta,
-              options.defaultTags ?? "firstSegment"
+              pluginOptions.defaultTags ?? "firstSegment"
             ),
           };
 
@@ -588,43 +592,40 @@ export function createOpenAPIPlugin(): BunRPCPlugin<
 
       const documentComponents =
         Object.keys(outputSchemaRegistry.componentsSchemas ?? {}).length === 0
-          ? options.components
+          ? pluginOptions.components
           : {
-              ...options.components,
+              ...pluginOptions.components,
               schemas: {
-                ...options.components?.schemas,
+                ...pluginOptions.components?.schemas,
                 ...outputSchemaRegistry.componentsSchemas,
               },
             };
 
       const document: OpenAPIObject = {
         openapi: "3.1.0",
-        info: options.info,
-        servers: options.servers,
-        tags: options.tags,
-        security: options.security,
+        info: pluginOptions.info,
+        servers: pluginOptions.servers,
+        tags: pluginOptions.tags,
+        security: pluginOptions.security,
         components: documentComponents,
         paths,
       };
 
-      const routes: Record<
-        string,
-        () => Response
-      > = {
+      const routes: Record<string, () => Response> = {
         [documentPath]: () => Response.json(document),
       };
 
-      const swagger = resolveSwaggerOptions(options.swagger, options.info.title);
+      const swagger = resolveSwaggerOptions(
+        pluginOptions.swagger,
+        pluginOptions.info.title
+      );
       if (swagger) {
         routes[swagger.path] = () =>
-          new Response(
-            createSwaggerHtml(documentPath, swagger),
-            {
-              headers: {
-                "Content-Type": "text/html; charset=utf-8",
-              },
-            }
-          );
+          new Response(createSwaggerHtml(documentPath, swagger), {
+            headers: {
+              "Content-Type": "text/html; charset=utf-8",
+            },
+          });
       }
 
       return {
@@ -634,5 +635,5 @@ export function createOpenAPIPlugin(): BunRPCPlugin<
         routes,
       };
     },
-  });
+  };
 }

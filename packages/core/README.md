@@ -1,352 +1,193 @@
 # @bunrpc/core
 
-Type-safe RPC core for Bun.
-
-## Features
-
-- End-to-end type inference from router to client
-- Middleware with context propagation via `next(...)`
-- App + system error unions per procedure
-- Safe client results (no throws in `createClient`)
-- Standard Schema input validation
-- React Query integration via `@bunrpc/react`
-
-## Installation
-
-```bash
-bun add @bunrpc/core
-```
-
-For React Query integration (recommended for frontend apps):
-
-```bash
-bun add @bunrpc/react @tanstack/react-query
-```
-
-For `.input(...)`, use any validation library that implements Standard Schema.
-
-## Schema examples (`./schemas.ts`)
-
-Zod:
-
-```ts
-import * as z from "zod";
-
-export const CreateChatSchema = z.object({
-  title: z.string().min(1),
-});
-```
-
-Valibot:
-
-```ts
-import * as v from "valibot";
-
-export const CreateChatSchema = v.object({
-  title: v.pipe(v.string(), v.minLength(1, "Title is required")),
-});
-```
+Type-safe RPC for Bun with app-scoped plugins.
 
 ## Quick Start
 
-### 1) Define server procedures
+```ts
+import { initBunRpc } from "@bunrpc/core";
+import { mcp } from "@bunrpc/mcp";
+import { openapi } from "@bunrpc/openapi";
+
+const b = initBunRpc({
+  prefix: "/api",
+  formatInternalServerError: () => ({
+    message: "Unexpected server error",
+  }),
+})
+  .use(openapi({
+    info: {
+      title: "My API",
+      version: "1.0.0",
+    },
+  }))
+  .use(mcp({
+    path: "/mcp",
+    instructions: "Use the available tools.",
+  }));
+
+export const { publicProcedure, router } = b;
+```
 
 ```ts
-import {
-  createBunRPCRoutes,
-  createProcedure,
-  createRouter,
-} from "@bunrpc/core";
-import { CreateChatSchema } from "./schemas";
+import { createHttpRoutes } from "@bunrpc/core";
+import { publicProcedure, router } from "./bunrpc";
+import * as z from "zod";
 
-const publicProcedure = createProcedure();
-
-const loggedProcedure = publicProcedure.use(async (opts) => {
-  const start = Date.now();
-  const result = await opts.next();
-  const durationMs = Date.now() - start;
-
-  const meta = {
-    path: opts.path,
-    type: opts.type,
-    durationMs,
-  };
-
-  result.ok
-    ? console.log("OK request timing:", meta)
-    : console.error("Non-OK request timing:", meta);
-
-  return result;
+const createChatInput = z.object({
+  title: z.string().min(1),
 });
 
-// Middleware:
-// - return opts.next(...) to continue
-// - or return error({...}) to stop with app error
-// - middleware can be sync or async
-// - for cookies use req.cookies (Bun CookieMap)
+const chat = z.object({
+  id: z.string(),
+  title: z.string(),
+});
 
-const authProcedure = loggedProcedure.use(({ req, error, next }) => {
-  const token = req.headers.get("authorization");
-  if (!token) {
+const authProcedure = publicProcedure.use(({ req, error, next }) => {
+  const authorization = req.headers.get("authorization");
+
+  if (!authorization) {
     return error({
       code: "UNAUTHORIZED",
       status: 401,
-      message: "Unauthorized",
+      message: "Missing Authorization header",
     });
   }
 
-  return next({ userId: "user_1" });
+  return next({
+    userId: authorization.replace(/^Bearer\\s+/i, ""),
+  });
 });
 
-// Bun CookieMap helpers are available on req.cookies.
-// Bun automatically reflects set/delete calls into Set-Cookie response headers.
-const sessionProcedure = publicProcedure.use(({ req, next }) => {
-  if (!req.cookies.has("session")) {
-    req.cookies.set("session", "session_1", { path: "/", httpOnly: true });
-  }
-
-  req.cookies.delete("legacy_session", { path: "/" });
-  return next();
-});
-
-const chatRouter = createRouter({
-  list: authProcedure.handler(({ userId }) => {
-    return [{ id: "chat_1", title: `General (${userId})` }];
+const appRouter = router({
+  chat: router({
+    list: authProcedure.handler(({ userId }) => [{ id: "1", title: userId }]),
+    create: authProcedure
+      .input(createChatInput)
+      .output(chat)
+      .handler(({ input, userId }) => ({
+        id: crypto.randomUUID(),
+        title: input.title,
+        ownerId: userId,
+      })),
   }),
-  create: authProcedure
-    .input(CreateChatSchema)
-    .handler(({ input, userId, error }) => {
-      if (input.title.length > 120) {
-        return error({
-          code: "TITLE_TOO_LONG",
-          status: 400,
-          message: "Title is too long",
-          details: { max: 120 },
-        });
-      }
-
-      return { id: "chat_2", title: input.title, ownerId: userId };
-    }),
 });
 
-const rpc = createBunRPCRoutes(
-  { chat: chatRouter },
-  {
-    prefix: "/api", // default value
-    formatInternalServerError: (_error, event) => {
-      return {
-        message: "Unexpected server error",
-        details: {
-          requestPath: event.path,
-        },
-      };
-    },
-  }
-);
+export type AppRouter = typeof appRouter;
 
 Bun.serve({
   port: 3000,
   routes: {
-    ...rpc.routes,
+    ...createHttpRoutes(appRouter).routes,
   },
 });
-
-export type AppRouter = typeof rpc._router;
 ```
 
-### 2) React Query integration (recommended)
+## Client
 
 ```ts
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createQueryClient, useRpcUtils } from "@bunrpc/react";
-import type { AppRouter } from "./server";
-
-const queryClient = new QueryClient();
-const rpc = createQueryClient<AppRouter>({
-  baseUrl: "/api", // default value
-  log: true, // default outside production
-});
-
-function ChatList() {
-  const query = rpc.chat.list.useQuery();
-
-  if (query.error) {
-    if (
-      query.error.source === "app" &&
-      query.error.code === "TITLE_TOO_LONG"
-    ) {
-      console.log(query.error.details?.max);
-    } else {
-      // system errors (network/validation/internal)
-      console.log("Something went wrong");
-    }
-  }
-
-  return <pre>{JSON.stringify(query.data, null, 2)}</pre>;
-}
-
-function CreateChat() {
-  const { invalidate } = useRpcUtils(rpc);
-
-  const mutation = rpc.chat.create.useMutation({
-    onSuccess: async () => {
-      await invalidate(rpc.chat.list);
-    },
-  });
-
-  return (
-    <button onClick={() => mutation.mutate({ title: "Roadmap" })}>
-      Create chat
-    </button>
-  );
-}
-
-export function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <ChatList />
-      <CreateChat />
-    </QueryClientProvider>
-  );
-}
-```
-
-### 3) Use safe client API (non-React flows)
-
-```ts
-import { createClient, isAppError, isValidationError } from "@bunrpc/core";
+import { createClient } from "@bunrpc/core";
 import type { AppRouter } from "./server";
 
 const client = createClient<AppRouter>({
-  baseUrl: "/api", // default value
-  log: true, // default outside production
+  baseUrl: "http://localhost:3000/api",
 });
 
-const result = await client.chat.create({ title: "Roadmap" });
+const result = await client.chat.list();
 
-const abortController = new AbortController();
-const authedResult = await client.chat.create(
-  { title: "Roadmap" },
-  {
-    headers: {
-      Authorization: "Bearer demo-user",
-    },
-    signal: abortController.signal,
-  }
-);
-
-if (!result.ok) {
-  if (isAppError(result)) {
-    // only errors returned by error({...}) from middleware/handler
-    if (result.error.code === "TITLE_TOO_LONG") {
-      console.log(result.error.details?.max);
-    }
-  } else if (isValidationError(result)) {
-    console.log(result.error.details.issues);
-  } else {
-    // system/transport errors -> show generic message
-    console.log("Something went wrong");
-  }
+if (result.ok) {
+  console.log(result.data);
 }
 ```
 
-If frontend and API are on the same domain, use `baseUrl: "/api"` (or omit `baseUrl` entirely since `"/api"` is default).
+`createClient()` returns safe-result unions:
 
-`createClient` and `createQueryClient` support `log`, which prints styled request/response traces in development and defaults to `true` outside production.
+- success: `{ ok: true, data }`
+- failure: `{ ok: false, error }`
 
-Per-request request options are passed as the second argument. For procedures without input, use `client.ping(undefined, { signal })`.
+## Core API
 
-## Plugins
+- `initBunRpc(options)` creates an app-scoped builder.
+- `b.use(plugin)` attaches a typed plugin to that app only.
+- `b.publicProcedure` is the base procedure builder.
+- `b.router(...)` creates nested routers.
+- `createHttpRoutes(router)` generates `Bun.serve()` handlers from a router created by `initBunRpc(...).router(...)`.
+- `.input(schema)` validates request payloads.
+- `.output(schema)` defines the success output contract and narrows handler return types.
+- `.use(middleware)` extends handler context.
+- `.handler(fn)` defines the procedure implementation.
 
-`@bunrpc/core` supports typed plugins for router-level extensions such as OpenAPI or MCP.
+## Plugin Model
+
+Plugins are regular values. There is no global registry.
+
+The mental model is:
+
+1. `initBunRpc(...).use(plugin(...))` attaches a plugin to one app instance.
+2. That plugin can add typed procedure methods to `b.publicProcedure`.
+3. `createHttpRoutes(...)` collects all procedures, their schemas, and plugin metadata.
+4. Each plugin gets one `setup(...)` call and can return extra routes plus a typed runtime extension in `http.plugins.<name>`.
+
+A plugin can affect procedures in three different ways:
+
+- `methods`: chainable metadata methods like `.summary(...)` or `.tool(...)`.
+- `handlerMethods`: terminal variants that behave like `.handler(...)`, for cases like `.mcpOnlyHandler(...)`.
+- `includeProcedureInHttpRoutes(...)`: runtime visibility filter for the normal HTTP surface.
+
+During `setup(...)`, each procedure includes:
+
+- `path` and `fullPath`
+- `inputSchema` and `outputSchema`
+- `meta` for the current plugin
+- `httpExposed`, which tells the plugin whether that procedure is part of the normal RPC/client surface
+
+## Plugin Authoring
 
 ```ts
-import {
-  createBunRPCRoutes,
-  createProcedure,
-  createRouter,
-  definePlugin,
-  useRouterPlugin,
-} from "@bunrpc/core";
+import type { BunRPCPlugin } from "@bunrpc/core";
 
-const openapiPlugin = definePlugin<
-  "openapi",
-  {
-    description: (description: string) => { description: string };
-  },
-  { documentPath: string },
-  { document: { paths: string[] } }
->({
-  name: "openapi",
-  procedure: {
-    description: (description) => ({ description }),
-  },
-  setup: ({ options, procedures }) => {
-    const document = {
-      paths: procedures.map((procedure) => procedure.fullPath),
-    };
+type DocsMethods = {
+  description: (description: string) => { description: string };
+};
 
-    return {
-      extension: { document },
-      routes: {
-        [options.documentPath]: () => Response.json(document),
+type DocsMeta = {
+  description?: string;
+};
+
+export function docsPlugin(): BunRPCPlugin<
+  "docs",
+  { path: string },
+  DocsMethods,
+  DocsMeta,
+  { documentPath: string }
+> {
+  return {
+    name: "docs",
+    options: {
+      path: "/docs.json",
+    },
+    methods: {
+      description: (description) => ({ description }),
+    },
+    setup: ({ options, procedures }) => ({
+      extension: {
+        documentPath: options.path,
       },
-    };
-  },
-});
-
-const publicProcedure = createProcedure().use(openapiPlugin());
-
-const chatRouter = createRouter(
-  {
-    list: publicProcedure
-      .description("List chats")
-      .handler(() => []),
-  },
-  {
-    plugins: [
-      useRouterPlugin(openapiPlugin, {
-        documentPath: "/openapi.json",
-      }),
-    ],
-  }
-);
-
-const rpc = createBunRPCRoutes({ chat: chatRouter });
-
-rpc.plugins.openapi.document.paths;
-rpc.routes["/openapi.json"];
+      routes: {
+        [options.path]: () =>
+          Response.json({
+            procedures: procedures.map((procedure) => ({
+              path: procedure.fullPath,
+              httpExposed: procedure.httpExposed,
+              description: procedure.meta?.description,
+            })),
+          }),
+      },
+    }),
+  };
+}
 ```
 
-## Error Model
+Once a plugin is attached with `b.use(docsPlugin())`, its procedure methods become available on `b.publicProcedure`, and its runtime output becomes available on `http.plugins.docs`.
 
-- App errors (`source: "app"`) come from `return error({...})` in middleware or handler.
-- System errors (`source: "system"`) are generated by transport/runtime layers.
-- App errors from shared middleware (for example `authProcedure`) are included in every downstream procedure's error union.
-
-Common system codes:
-
-- `NETWORK_ERROR`
-- `BAD_RESPONSE`
-- `METHOD_NOT_ALLOWED`
-- `INVALID_JSON`
-- `VALIDATION_ERROR` (typed details: `{ issues: Array<{ path: string; message: string }> }`)
-- `HTTP_ERROR`
-- `INTERNAL_SERVER_ERROR`
-
-## API Overview
-
-- `createProcedure().use(plugin())` - register a procedure plugin and expose its custom builder methods
-- `createRouter()` - group procedures in a nested router
-- `definePlugin()` - create a typed plugin descriptor
-- `definePlugin({ procedure: { ... } })` - declare custom procedure builder methods such as `.description(...)`
-- `useRouterPlugin()` - register a plugin on a router with typed options
-- `createBunRPCRoutes()` - generate `Bun.serve()` route handlers with optional internal error formatter
-- cookies: use Bun `req.cookies` (`CookieMap`) in middleware/handlers
-- `createClient()` - safe RPC client returning `RpcResult`
-- `isAppError(result)` - type guard for app errors in safe results
-- `isValidationError(result)` - type guard for `VALIDATION_ERROR` in safe results
-- `createQueryClient()` (`@bunrpc/react`) - React Query integration
-- `RpcError<TPayload>` - typed error class used by React Query flow
-
-For advanced/internal utility types, import from `@bunrpc/core/types`.
+If a plugin needs a terminal method that behaves like `.handler(...)`, use `handlerMethods`. A real example is `@bunrpc/mcp`, where the plugin declares `mcpOnlyHandler` and uses it to hide a procedure from the normal HTTP/client surface while still exposing it through MCP.

@@ -16,15 +16,17 @@
     "apps/*"
   ],
   "scripts": {
-    "check": "bun run check:core && bun run check:openapi && bun run check:react && bun run typecheck:example",
+    "check": "bun run check:core && bun run check:mcp && bun run check:openapi && bun run check:react && bun run typecheck:example",
     "check:core": "bun run --cwd packages/core check",
+    "check:mcp": "bun run --cwd packages/mcp check",
     "check:openapi": "bun run --cwd packages/openapi check",
     "check:react": "bun run --cwd packages/react check",
-    "typecheck": "bun run typecheck:core && bun run typecheck:openapi && bun run typecheck:react && bun run typecheck:example",
+    "typecheck": "bun run typecheck:core && bun run typecheck:mcp && bun run typecheck:openapi && bun run typecheck:react && bun run typecheck:example",
     "typecheck:core": "bun run --cwd packages/core typecheck",
+    "typecheck:mcp": "bun run --cwd packages/mcp typecheck",
     "typecheck:openapi": "bun run --cwd packages/openapi typecheck",
     "typecheck:react": "bun run --cwd packages/react typecheck",
     "typecheck:example": "bun run --cwd apps/example typecheck",
-    "test": "bun run --cwd packages/core test && bun run --cwd packages/openapi test && bun run --cwd packages/react test"
+    "test": "bun run --cwd packages/core test && bun run --cwd packages/mcp test && bun run --cwd packages/openapi test && bun run --cwd packages/react test"
   }
 }
