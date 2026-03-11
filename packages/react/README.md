@@ -16,6 +16,7 @@ import type { AppRouter } from "./server";
 
 const rpc = createQueryClient<AppRouter>({
   baseUrl: "/api", // Default value
+  log: true, // Default outside production
 });
 
 function Screen() {
@@ -31,6 +32,27 @@ function Screen() {
   return null;
 }
 ```
+
+TanStack Query cancellation is forwarded to the underlying `fetch` via `AbortSignal` for `useQuery` and `useInfiniteQuery`.
+
+Mutations support per-call request options through the wrapped mutation helpers:
+
+```ts
+const mutation = rpc.chat.create.useMutation();
+const controller = new AbortController();
+
+mutation.mutate(
+  { title: "Roadmap" },
+  {
+    signal: controller.signal,
+    headers: {
+      Authorization: "Bearer demo-user",
+    },
+  }
+);
+```
+
+`createQueryClient` forwards `log` to `@bunrpc/core/createClient`, so development request/response traces are enabled by default outside production.
 
 ## Infinite queries
 

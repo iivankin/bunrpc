@@ -75,6 +75,61 @@ test("query client exposes useInfiniteQuery helper", () => {
   ).toBe(true);
 });
 
+test("mutation client accepts request options on mutate calls", () => {
+  type CreateProcedure = Procedure<
+    Record<string, never>,
+    { title: string },
+    { id: string },
+    never
+  >;
+
+  const rpc = createQueryClient<{
+    chat: {
+      create: CreateProcedure;
+    };
+  }>();
+
+  type MutationHook = ReturnType<typeof rpc.chat.create.useMutation>;
+  type MutateArgs = Parameters<MutationHook["mutate"]>;
+  type MutateAsyncArgs = Parameters<MutationHook["mutateAsync"]>;
+  type MutateInput = MutateArgs[0];
+  type MutateOptions = NonNullable<MutateArgs[1]>;
+  type MutateAsyncOptions = NonNullable<MutateAsyncArgs[1]>;
+  type HasSignal = MutateOptions extends { signal?: AbortSignal } ? true : false;
+  type HasHeaders = MutateOptions extends {
+    headers?: Record<string, string>;
+  }
+    ? true
+    : false;
+
+  const assertMutateInput: Expect<Equal<MutateInput, { title: string }>> = true;
+  const assertSignal: Expect<Equal<HasSignal, true>> = true;
+  const assertHeaders: Expect<Equal<HasHeaders, true>> = true;
+  const mutateOptions: MutateOptions = {
+    signal: new AbortController().signal,
+    headers: { Authorization: "Bearer token" },
+    onSuccess: (_data, variables) => {
+      const title: string = variables.title;
+      return title;
+    },
+  };
+  const mutateAsyncOptions: MutateAsyncOptions = {
+    signal: new AbortController().signal,
+    onError: (_error, variables) => {
+      const title: string = variables.title;
+      return title;
+    },
+  };
+
+  expect(
+    assertMutateInput &&
+      assertSignal &&
+      assertHeaders &&
+      !!mutateOptions &&
+      !!mutateAsyncOptions
+  ).toBe(true);
+});
+
 test("rpc error narrows by top-level source/code", () => {
   type ErrorUnion =
     | AppRpcError<"TITLE_TOO_LONG", { max: number }>

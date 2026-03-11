@@ -5,10 +5,12 @@ import {
   createClient,
   createProcedure,
   createRouter,
+  definePlugin,
   isAppError,
   isValidationError,
+  useRouterPlugin,
 } from "./index";
-import type { StandardSchemaV1 } from "./types";
+import type { ClientRequestOptions, StandardSchemaV1 } from "./types";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
   T extends B ? 1 : 2
@@ -51,6 +53,33 @@ function createSingleStringFieldSchema<TKey extends string>(
   };
 }
 
+async function withMockedConsole<T>(
+  run: (mocks: {
+    groupCollapsed: ReturnType<typeof mock>;
+    groupEnd: ReturnType<typeof mock>;
+    log: ReturnType<typeof mock>;
+  }) => Promise<T> | T
+): Promise<T> {
+  const originalGroupCollapsed = console.groupCollapsed;
+  const originalGroupEnd = console.groupEnd;
+  const originalLog = console.log;
+  const groupCollapsed = mock(() => {});
+  const groupEnd = mock(() => {});
+  const log = mock(() => {});
+
+  console.groupCollapsed = groupCollapsed as typeof console.groupCollapsed;
+  console.groupEnd = groupEnd as typeof console.groupEnd;
+  console.log = log as typeof console.log;
+
+  try {
+    return await run({ groupCollapsed, groupEnd, log });
+  } finally {
+    console.groupCollapsed = originalGroupCollapsed;
+    console.groupEnd = originalGroupEnd;
+    console.log = originalLog;
+  }
+}
+
 describe("bunrpc", () => {
   describe("createProcedure", () => {
     test("creates a procedure without input", () => {
@@ -69,6 +98,34 @@ describe("bunrpc", () => {
 
       expect(procedure._type).toBe("procedure");
       expect(procedure.inputSchema).toBeDefined();
+    });
+
+    test("supports output schema contracts", () => {
+      const outputSchema = createSingleStringFieldSchema("id");
+      const createProcedureWithOutput = createProcedure()
+        .output(outputSchema)
+        .handler(() => ({ id: "chat_1" }));
+      const createWithInputAndOutput = createProcedure()
+        .input(createSingleStringFieldSchema("title"))
+        .output(outputSchema)
+        .handler(({ input }) => ({ id: input.title }));
+
+      const client = createClient<{
+        chat: {
+          create: typeof createWithInputAndOutput;
+        };
+      }>();
+      type CreateResult = Awaited<ReturnType<typeof client.chat.create>>;
+      type CreateData = Extract<CreateResult, { ok: true }>["data"];
+      const assertOutput: Expect<
+        Equal<typeof createProcedureWithOutput._output, { id: string }>
+      > = true;
+      const assertClientOutput: Expect<Equal<CreateData, { id: string }>> = true;
+
+      expect(assertOutput).toBe(true);
+      expect(assertClientOutput).toBe(true);
+      expect(createProcedureWithOutput.outputSchema).toBe(outputSchema);
+      expect(createWithInputAndOutput.outputSchema).toBe(outputSchema);
     });
 
     test("supports middleware and handler error helpers", async () => {
@@ -92,6 +149,11 @@ describe("bunrpc", () => {
         };
       }>();
       type MeClientResult = Awaited<ReturnType<typeof typedClient.user.me>>;
+      type MeClientParams = Parameters<typeof typedClient.user.me>;
+      type ExpectedMeClientParams = [
+        input?: undefined,
+        requestOptions?: ClientRequestOptions,
+      ];
       type MeClientError = Extract<MeClientResult, { ok: false }>["error"];
       type MeClientAppCode = Extract<
         MeClientError,
@@ -100,7 +162,11 @@ describe("bunrpc", () => {
       const assertClientAppCode: Expect<
         Equal<MeClientAppCode, "UNAUTHORIZED">
       > = true;
+      const assertClientParams: Expect<
+        Equal<MeClientParams, ExpectedMeClientParams>
+      > = true;
       expect(assertClientAppCode).toBe(true);
+      expect(assertClientParams).toBe(true);
 
       const assertControlFlowNarrowing = (
         result: MeClientResult
@@ -270,6 +336,212 @@ describe("bunrpc", () => {
 
       expect(rpc.routes).toHaveProperty("/rpc/items/list");
     });
+
+    test("supports typed openapi-style plugins", async () => {
+      const openapiPlugin = definePlugin<
+        "openapi",
+        {
+          description: (description: string) => {
+            description: string;
+          };
+        },
+        { documentPath: string },
+        {
+          document: {
+            prefix: string;
+            path: string;
+            descriptions: string[];
+            paths: string[];
+          };
+        }
+      >({
+        name: "openapi",
+        procedure: {
+          description: (description) => ({
+            description,
+          }),
+        },
+        setup: ({ options, prefix, procedures }) => {
+          const document = {
+            prefix,
+            path: options.documentPath,
+            descriptions: procedures.map(
+              (procedure) => procedure.meta?.description ?? procedure.path
+            ),
+            paths: procedures.map((procedure) => procedure.fullPath),
+          };
+
+          return {
+            extension: {
+              document,
+            },
+            routes: {
+              [options.documentPath]: () => Response.json(document),
+            },
+          };
+        },
+      });
+
+      const publicProcedure = createProcedure().use(openapiPlugin());
+      type DescriptionArgs = Parameters<typeof publicProcedure.description>;
+      const assertDescriptionArgs: Expect<
+        Equal<DescriptionArgs, [description: string]>
+      > = true;
+      const createProcedureWithDescription = publicProcedure
+        .input(createSingleStringFieldSchema("title"))
+        .description("Create chat")
+        .handler(({ input }) => ({ title: input.title }));
+
+      const chatRouter = createRouter(
+        {
+          list: publicProcedure
+            .description("List chats")
+            .handler(() => ({ items: [] as string[] })),
+        },
+        {
+          plugins: [
+            useRouterPlugin(openapiPlugin, {
+              documentPath: "/openapi.json",
+            }),
+          ],
+        }
+      );
+
+      const rpc = createBunRPCRoutes({ chat: chatRouter });
+
+      type OpenApiDocument = typeof rpc.plugins.openapi.document;
+      const assertDocument: Expect<
+        Equal<
+          OpenApiDocument,
+          {
+            prefix: string;
+            path: string;
+            descriptions: string[];
+            paths: string[];
+          }
+        >
+      > = true;
+
+      expect(assertDescriptionArgs).toBe(true);
+      expect(assertDocument).toBe(true);
+      expect(createProcedureWithDescription._type).toBe("procedure");
+
+      const response = await rpc.routes["/openapi.json"]!(
+        new Request("http://localhost/openapi.json", {
+          method: "GET",
+        }) as BunRequest<string>,
+        {} as never
+      );
+      const payload = (await response.json()) as {
+        prefix: string;
+        path: string;
+        descriptions: string[];
+        paths: string[];
+      };
+
+      expect(payload).toEqual({
+        prefix: "/api",
+        path: "/openapi.json",
+        descriptions: ["List chats"],
+        paths: ["/api/chat/list"],
+      });
+      expect(rpc.plugins.openapi.document).toEqual(payload);
+    });
+
+    test("supports typed mcp-style plugins on nested routers", async () => {
+      const mcpPlugin = definePlugin<
+        "mcp",
+        {
+          tool: (tool: string) => {
+            tool: string;
+          };
+        },
+        { manifestPath: string },
+        {
+          manifest: {
+            tools: Array<{ name: string; path: string }>;
+          };
+        }
+      >({
+        name: "mcp",
+        procedure: {
+          tool: (tool) => ({
+            tool,
+          }),
+        },
+        setup: ({ options, procedures }) => {
+          const tools = procedures
+            .filter(
+              (procedure): procedure is typeof procedure & {
+                meta: { tool: string };
+              } => procedure.meta !== undefined
+            )
+            .map((procedure) => ({
+              name: procedure.meta.tool,
+              path: procedure.fullPath,
+            }));
+
+          return {
+            extension: {
+              manifest: {
+                tools,
+              },
+            },
+            routes: {
+              [options.manifestPath]: () => Response.json({ tools }),
+            },
+          };
+        },
+      });
+
+      const mcpProcedure = createProcedure().use(mcpPlugin());
+
+      const toolsRouter = createRouter(
+        {
+          echo: mcpProcedure
+            .tool("echo")
+            .handler(() => ({ ok: true })),
+        },
+        {
+          plugins: [
+            useRouterPlugin(mcpPlugin, {
+              manifestPath: "/mcp/tools",
+            }),
+          ],
+        }
+      );
+
+      const rpc = createBunRPCRoutes({
+        tools: toolsRouter,
+      });
+
+      type McpTools = typeof rpc.plugins.mcp.manifest.tools;
+      const assertTools: Expect<
+        Equal<McpTools, Array<{ name: string; path: string }>>
+      > = true;
+
+      expect(assertTools).toBe(true);
+
+      const response = await rpc.routes["/mcp/tools"]!(
+        new Request("http://localhost/mcp/tools", {
+          method: "GET",
+        }) as BunRequest<string>,
+        {} as never
+      );
+      const payload = (await response.json()) as {
+        tools: Array<{ name: string; path: string }>;
+      };
+
+      expect(payload).toEqual({
+        tools: [
+          {
+            name: "echo",
+            path: "/api/tools/echo",
+          },
+        ],
+      });
+      expect(rpc.plugins.mcp.manifest).toEqual(payload);
+    });
   });
 
   describe("createBunRPCRoutes internal error formatter", () => {
@@ -323,6 +595,7 @@ describe("bunrpc", () => {
       const client = createClient<{ items: typeof itemsRouter }>({
         baseUrl: "/api",
         fetch: mockFetch,
+        log: false,
       });
 
       const result = await client.items.list();
@@ -350,6 +623,7 @@ describe("bunrpc", () => {
       const client = createClient<{ items: typeof itemsRouter }>({
         baseUrl: "/api",
         fetch: mockFetch,
+        log: false,
       });
 
       const result = await client.items.get({ id: "123" });
@@ -398,6 +672,7 @@ describe("bunrpc", () => {
       const client = createClient<{ chat: typeof chatRouter }>({
         baseUrl: "/api",
         fetch: mockFetch,
+        log: false,
       });
 
       const result = await client.chat.create({ title: "Roadmap" });
@@ -421,6 +696,7 @@ describe("bunrpc", () => {
       const client = createClient<{ api: typeof apiRouter }>({
         baseUrl: "/api",
         fetch: mockFetch,
+        log: false,
       });
 
       const result = await client.api.ping();
@@ -446,6 +722,7 @@ describe("bunrpc", () => {
       const client = createClient<{ api: typeof apiRouter }>({
         baseUrl: "/api",
         fetch: mockFetch,
+        log: false,
       });
 
       const result = await client.api.ping();
@@ -491,6 +768,7 @@ describe("bunrpc", () => {
       const client = createClient<{ api: typeof apiRouter }>({
         baseUrl: "/api",
         fetch: mockFetch,
+        log: false,
       });
 
       const result = await client.api.create({ title: "" });
@@ -516,6 +794,7 @@ describe("bunrpc", () => {
       const client = createClient<{ api: typeof apiRouter }>({
         fetch: mockFetch,
         headers: { Authorization: "Bearer token" },
+        log: false,
       });
 
       await client.api.test();
@@ -527,6 +806,132 @@ describe("bunrpc", () => {
           "Content-Type": "application/json",
         },
       });
+    });
+
+    test("supports per-request headers and abort signal", async () => {
+      const mockFetch = mock(() =>
+        Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+      );
+      const controller = new AbortController();
+
+      const apiRouter = createRouter({
+        test: createProcedure().handler(() => ({})),
+      });
+
+      const client = createClient<{ api: typeof apiRouter }>({
+        fetch: mockFetch,
+        headers: {
+          Authorization: "Bearer global",
+          "X-Global": "1",
+        },
+        log: false,
+      });
+
+      await client.api.test(undefined, {
+        headers: {
+          Authorization: "Bearer request",
+          "X-Request": "2",
+        },
+        signal: controller.signal,
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith("/api/api/test", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer request",
+          "X-Global": "1",
+          "X-Request": "2",
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      });
+    });
+
+    test("logs pretty request and response traces when enabled", async () => {
+      const mockFetch = mock(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ items: [] }), { status: 200 })
+        )
+      );
+
+      const itemsRouter = createRouter({
+        list: createProcedure().handler(() => ({
+          items: [] as Array<{ id: string }>,
+        })),
+      });
+
+      await withMockedConsole(async ({ groupCollapsed, groupEnd, log }) => {
+        const client = createClient<{ items: typeof itemsRouter }>({
+          baseUrl: "/api",
+          fetch: mockFetch,
+          log: true,
+        });
+
+        await client.items.list();
+
+        expect(groupCollapsed).toHaveBeenCalled();
+        expect(groupCollapsed.mock.calls).toHaveLength(2);
+        expect(String(groupCollapsed.mock.calls[0]?.[0])).toContain("request");
+        expect(String(groupCollapsed.mock.calls[1]?.[0])).toContain("response");
+        expect(groupEnd.mock.calls).toHaveLength(2);
+        expect(log.mock.calls).toContainEqual(["input", undefined]);
+        expect(log.mock.calls).toContainEqual(["response", { items: [] }]);
+      });
+    });
+
+    test("enables logging by default outside production", async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "development";
+
+      try {
+        const mockFetch = mock(() =>
+          Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+        );
+        const apiRouter = createRouter({
+          ping: createProcedure().handler(() => ({ ok: true })),
+        });
+
+        await withMockedConsole(async ({ groupCollapsed }) => {
+          const client = createClient<{ api: typeof apiRouter }>({
+            baseUrl: "/api",
+            fetch: mockFetch,
+          });
+
+          await client.api.ping();
+
+          expect(groupCollapsed).toHaveBeenCalled();
+        });
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    });
+
+    test("disables logging by default in production", async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+
+      try {
+        const mockFetch = mock(() =>
+          Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+        );
+        const apiRouter = createRouter({
+          ping: createProcedure().handler(() => ({ ok: true })),
+        });
+
+        await withMockedConsole(async ({ groupCollapsed, log }) => {
+          const client = createClient<{ api: typeof apiRouter }>({
+            baseUrl: "/api",
+            fetch: mockFetch,
+          });
+
+          await client.api.ping();
+
+          expect(groupCollapsed).not.toHaveBeenCalled();
+          expect(log).not.toHaveBeenCalled();
+        });
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
     });
   });
 });

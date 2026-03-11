@@ -1,27 +1,42 @@
 import type { BunRequest, Server } from "bun";
 import { BunRpcHttpError } from "./bunrpc-http-error";
+import {
+  getProcedurePluginMeta,
+  getRouterPluginUses,
+  isProcedurePluginUse,
+  setProcedurePluginMeta,
+  setRouterPluginUses,
+} from "./plugin";
 import type { StandardSchemaV1 } from "./standard-schema";
 import {
   createProcedureErrorResult,
   createSystemError,
   isProcedureErrorResult,
   type AnyProcedure,
+  type AnyBunRPCPlugin,
   type AnyProcedureNextResult,
   type AppRpcError,
   type BaseContext,
+  type BunRPCRouteHandler,
   type BunRPCRoutes,
   type InferSchemaOutput,
   type MaybePromise,
   type MiddlewareContextFromResult,
+  type PluginProcedureMethods,
   type Procedure,
   type ProcedureErrorFromResult,
   type ProcedureErrorFactory,
   type ProcedureErrorResult,
   type ProcedureHelpers,
+  type ProcedurePluginEntry,
+  type ProcedurePluginUse,
   type ProcedureMiddlewareOptions,
   type ProcedureNextResult,
   type ProcedureOutputFromResult,
   type Router,
+  type RouterPluginCarrier,
+  type RouterPluginExtensions,
+  type RouterPluginUse,
 } from "./types";
 
 // ============================================================================
@@ -47,7 +62,48 @@ type MiddlewareError<TFn extends AnyMiddleware<any>> = ProcedureErrorFromResult<
   Extract<Awaited<ReturnType<TFn>>, ProcedureErrorResult<AppRpcError>>
 >;
 
-interface ProcedureBuilder<TContext, TError extends AppRpcError = never> {
+type UnionToIntersection<T> = (
+  T extends unknown ? (value: T) => void : never
+) extends (value: infer TIntersection) => void
+  ? TIntersection
+  : never;
+
+type ProcedureHandlerResultConstraint<
+  TOutputSchema extends StandardSchemaV1 | undefined,
+> = TOutputSchema extends StandardSchemaV1
+  ? InferSchemaOutput<TOutputSchema> | ProcedureErrorResult<AppRpcError>
+  : unknown;
+
+type ProcedureResolvedOutput<
+  TOutputSchema extends StandardSchemaV1 | undefined,
+  TResult,
+> = TOutputSchema extends StandardSchemaV1
+  ? InferSchemaOutput<TOutputSchema>
+  : ProcedureOutputFromResult<TResult>;
+
+type ProcedureBuilderPluginMethods<
+  TContext,
+  TError extends AppRpcError,
+  TPlugins extends readonly AnyBunRPCPlugin[],
+  TOutputSchema extends StandardSchemaV1 | undefined,
+> = UnionToIntersection<
+  TPlugins[number] extends infer TPlugin
+    ? TPlugin extends AnyBunRPCPlugin
+      ? {
+          [TKey in keyof PluginProcedureMethods<TPlugin> & string]: (
+            ...args: Parameters<PluginProcedureMethods<TPlugin>[TKey]>
+          ) => ProcedureBuilder<TContext, TError, TPlugins, TOutputSchema>;
+        }
+      : never
+    : never
+>;
+
+interface ProcedureBuilderBase<
+  TContext,
+  TError extends AppRpcError = never,
+  TPlugins extends readonly AnyBunRPCPlugin[] = [],
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+> {
   /**
    * Add middleware that extends context
    */
@@ -57,7 +113,21 @@ interface ProcedureBuilder<TContext, TError extends AppRpcError = never> {
     fn: TFn
   ): ProcedureBuilder<
     TContext & MiddlewareNextContext<TFn>,
-    TError | MiddlewareError<TFn>
+    TError | MiddlewareError<TFn>,
+    TPlugins,
+    TOutputSchema
+  >;
+
+  /**
+   * Register a procedure plugin and expose its custom builder methods
+   */
+  use<TPlugin extends AnyBunRPCPlugin>(
+    plugin: ProcedurePluginUse<TPlugin>
+  ): ProcedureBuilder<
+    TContext,
+    TError,
+    readonly [...TPlugins, TPlugin],
+    TOutputSchema
   >;
 
   /**
@@ -68,43 +138,100 @@ interface ProcedureBuilder<TContext, TError extends AppRpcError = never> {
   ): ProcedureBuilderWithInput<
     TContext,
     InferSchemaOutput<TSchema>,
-    TError
+    TError,
+    TPlugins,
+    TOutputSchema
   >;
+
+  /**
+   * Define output schema for successful responses
+   */
+  output<TSchema extends StandardSchemaV1>(
+    schema: TSchema
+  ): ProcedureBuilder<TContext, TError, TPlugins, TSchema>;
 
   /**
    * Define handler without input
    */
-  handler<TResult>(
+  handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
     fn: (
       ctx: TContext & BaseContext & ProcedureHelpers & { input: undefined }
     ) => MaybePromise<TResult>
   ): Procedure<
     TContext & BaseContext,
     undefined,
-    ProcedureOutputFromResult<TResult>,
+    ProcedureResolvedOutput<TOutputSchema, TResult>,
     TError | ProcedureErrorFromResult<TResult>
   >;
 }
 
-interface ProcedureBuilderWithInput<
+interface ProcedureBuilderWithInputBase<
   TContext,
   TInput,
   TError extends AppRpcError = never,
+  TPlugins extends readonly AnyBunRPCPlugin[] = [],
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
 > {
+  /**
+   * Define output schema for successful responses
+   */
+  output<TSchema extends StandardSchemaV1>(
+    schema: TSchema
+  ): ProcedureBuilderWithInput<TContext, TInput, TError, TPlugins, TSchema>;
+
   /**
    * Define handler with input
    */
-  handler<TResult>(
+  handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
     fn: (
       ctx: TContext & BaseContext & ProcedureHelpers & { input: TInput }
     ) => MaybePromise<TResult>
   ): Procedure<
     TContext & BaseContext,
     TInput,
-    ProcedureOutputFromResult<TResult>,
+    ProcedureResolvedOutput<TOutputSchema, TResult>,
     TError | ProcedureErrorFromResult<TResult>
   >;
 }
+
+type ProcedureBuilder<
+  TContext,
+  TError extends AppRpcError = never,
+  TPlugins extends readonly AnyBunRPCPlugin[] = [],
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+> = ProcedureBuilderBase<TContext, TError, TPlugins, TOutputSchema> &
+  ProcedureBuilderPluginMethods<TContext, TError, TPlugins, TOutputSchema>;
+
+type ProcedureBuilderWithInput<
+  TContext,
+  TInput,
+  TError extends AppRpcError = never,
+  TPlugins extends readonly AnyBunRPCPlugin[] = [],
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+> = ProcedureBuilderWithInputBase<
+  TContext,
+  TInput,
+  TError,
+  TPlugins,
+  TOutputSchema
+> &
+  UnionToIntersection<
+    TPlugins[number] extends infer TPlugin
+      ? TPlugin extends AnyBunRPCPlugin
+        ? {
+            [TKey in keyof PluginProcedureMethods<TPlugin> & string]: (
+              ...args: Parameters<PluginProcedureMethods<TPlugin>[TKey]>
+            ) => ProcedureBuilderWithInput<
+              TContext,
+              TInput,
+              TError,
+              TPlugins,
+              TOutputSchema
+            >;
+          }
+        : never
+      : never
+  >;
 
 type RuntimeMiddleware = (
   opts: ProcedureMiddlewareOptions<Record<string, unknown>>
@@ -118,36 +245,195 @@ function createProcedureHelpers(): ProcedureHelpers {
   return { error };
 }
 
+function assertProcedureBuilderPlugins(
+  plugins: readonly AnyBunRPCPlugin[]
+): void {
+  const seenPluginNames = new Set<string>();
+  const seenMethodNames = new Map<string, string>();
+  const reservedMethodNames = new Set(["use", "input", "output", "handler"]);
+
+  for (const plugin of plugins) {
+    if (seenPluginNames.has(plugin.name)) {
+      throw new Error(`Duplicate bunrpc plugin "${plugin.name}" on procedure`);
+    }
+
+    seenPluginNames.add(plugin.name);
+
+    for (const methodName of Object.keys(plugin.procedure ?? {})) {
+      if (reservedMethodNames.has(methodName)) {
+        throw new Error(
+          `Procedure plugin method "${methodName}" from "${plugin.name}" conflicts with a built-in builder method`
+        );
+      }
+
+      const existingPluginName = seenMethodNames.get(methodName);
+      if (existingPluginName !== undefined) {
+        throw new Error(
+          `Procedure plugin method "${methodName}" is defined by both "${existingPluginName}" and "${plugin.name}"`
+        );
+      }
+
+      seenMethodNames.set(methodName, plugin.name);
+    }
+  }
+}
+
+function isProcedureMetaPatch(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeProcedurePluginMeta(
+  entries: readonly ProcedurePluginEntry[],
+  plugin: AnyBunRPCPlugin,
+  patch: Record<string, unknown>
+): readonly ProcedurePluginEntry[] {
+  const existingIndex = entries.findIndex(
+    (entry) => entry.plugin.name === plugin.name
+  );
+
+  if (existingIndex === -1) {
+    return [
+      ...entries,
+      {
+        plugin,
+        meta: patch,
+      },
+    ];
+  }
+
+  const nextEntries = [...entries];
+  const existingEntry = nextEntries[existingIndex];
+  if (!existingEntry) {
+    return entries;
+  }
+
+  nextEntries[existingIndex] = {
+    plugin,
+    meta: {
+      ...(existingEntry.meta as Record<string, unknown>),
+      ...patch,
+    },
+  };
+
+  return nextEntries;
+}
+
+function applyProcedurePluginMethods<
+  TBuilder extends Record<string, unknown>,
+  TPlugins extends readonly AnyBunRPCPlugin[],
+>(
+  builder: TBuilder,
+  plugins: TPlugins,
+  createNextBuilder: (
+    plugin: AnyBunRPCPlugin,
+    patch: Record<string, unknown>
+  ) => TBuilder
+): TBuilder {
+  const target = builder as Record<string, unknown>;
+
+  for (const plugin of plugins) {
+    const procedureMethods = Object.entries(plugin.procedure ?? {}) as Array<
+      [string, (...args: unknown[]) => Record<string, unknown>]
+    >;
+
+    for (const [methodName, method] of procedureMethods) {
+      target[methodName] = (...args: unknown[]) => {
+        const patch = method(...args);
+
+        if (!isProcedureMetaPatch(patch)) {
+          throw new Error(
+            `Procedure plugin method "${plugin.name}.${methodName}" must return an object metadata patch`
+          );
+        }
+
+        return createNextBuilder(plugin, patch);
+      };
+    }
+  }
+
+  return builder;
+}
+
 /**
  * Create a procedure builder with middleware chain
  */
 export function createProcedure(): ProcedureBuilder<Record<string, never>, never> {
-  return createProcedureBuilder([]);
+  return createProcedureBuilder([], [] as const);
 }
 
-function createProcedureBuilder<TContext, TError extends AppRpcError>(
-  middlewares: RuntimeMiddleware[]
-): ProcedureBuilder<TContext, TError> {
+function createProcedureBuilder<
+  TContext,
+  TError extends AppRpcError,
+  TPlugins extends readonly AnyBunRPCPlugin[],
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+>(
+  middlewares: RuntimeMiddleware[],
+  plugins: TPlugins,
+  pluginEntries: readonly ProcedurePluginEntry[] = [],
+  outputSchema?: TOutputSchema
+): ProcedureBuilder<TContext, TError, TPlugins, TOutputSchema> {
   const builder = {
-    use<TFn extends AnyMiddleware<TContext>>(
-      fn: TFn
-    ): ProcedureBuilder<TContext & MiddlewareNextContext<TFn>, TError | MiddlewareError<TFn>> {
+    use(
+      value: AnyMiddleware<TContext> | ProcedurePluginUse<AnyBunRPCPlugin>
+    ): unknown {
+      if (isProcedurePluginUse(value)) {
+        const nextPlugins = [...plugins, value.plugin] as const;
+        assertProcedureBuilderPlugins(nextPlugins);
+
+        return createProcedureBuilder<
+          TContext,
+          TError,
+          typeof nextPlugins,
+          TOutputSchema
+        >(
+          middlewares,
+          nextPlugins,
+          pluginEntries,
+          outputSchema
+        );
+      }
+
       const nextBuilder = createProcedureBuilder([
         ...middlewares,
-        fn as RuntimeMiddleware,
-      ]);
+        value as RuntimeMiddleware,
+      ], plugins, pluginEntries, outputSchema);
 
-      return nextBuilder as unknown as ProcedureBuilder<
-        TContext & MiddlewareNextContext<TFn>,
-        TError | MiddlewareError<TFn>
-      >;
+      return nextBuilder as unknown;
     },
 
     input<TSchema extends StandardSchemaV1>(
       schema: TSchema
-    ): ProcedureBuilderWithInput<TContext, InferSchemaOutput<TSchema>, TError> {
-      return {
-        handler<TResult>(
+    ): ProcedureBuilderWithInput<
+      TContext,
+      InferSchemaOutput<TSchema>,
+      TError,
+      TPlugins,
+      TOutputSchema
+    > {
+      const inputBuilder = {
+        output<TNextOutputSchema extends StandardSchemaV1>(
+          nextOutputSchema: TNextOutputSchema
+        ): ProcedureBuilderWithInput<
+          TContext,
+          InferSchemaOutput<TSchema>,
+          TError,
+          TPlugins,
+          TNextOutputSchema
+        > {
+          return createProcedureBuilder<
+            TContext,
+            TError,
+            TPlugins,
+            TNextOutputSchema
+          >(
+            middlewares,
+            plugins,
+            pluginEntries,
+            nextOutputSchema
+          ).input(schema);
+        },
+
+        handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
           fn: (
             ctx: TContext &
               BaseContext &
@@ -156,56 +442,113 @@ function createProcedureBuilder<TContext, TError extends AppRpcError>(
         ): Procedure<
           TContext & BaseContext,
           InferSchemaOutput<TSchema>,
-          ProcedureOutputFromResult<TResult>,
+          ProcedureResolvedOutput<TOutputSchema, TResult>,
           TError | ProcedureErrorFromResult<TResult>
         > {
-          return {
+          const procedure: Procedure<
+            TContext & BaseContext,
+            InferSchemaOutput<TSchema>,
+            ProcedureResolvedOutput<TOutputSchema, TResult>,
+            TError | ProcedureErrorFromResult<TResult>
+          > = {
             _type: "procedure",
             inputSchema: schema,
+            outputSchema,
             middlewares,
             handler: fn as Procedure<
               TContext & BaseContext,
               InferSchemaOutput<TSchema>,
-              ProcedureOutputFromResult<TResult>,
+              ProcedureResolvedOutput<TOutputSchema, TResult>,
               TError | ProcedureErrorFromResult<TResult>
             >["handler"],
             _ctx: {} as TContext & BaseContext,
             _input: {} as InferSchemaOutput<TSchema>,
-            _output: {} as ProcedureOutputFromResult<TResult>,
+            _output: {} as ProcedureResolvedOutput<TOutputSchema, TResult>,
             _error: {} as TError | ProcedureErrorFromResult<TResult>,
           };
+
+          setProcedurePluginMeta(procedure, pluginEntries);
+          return procedure;
         },
       };
+
+      return applyProcedurePluginMethods(
+        inputBuilder,
+        plugins,
+        (plugin, patch) =>
+          createProcedureBuilder<TContext, TError, TPlugins, TOutputSchema>(
+            middlewares,
+            plugins,
+            mergeProcedurePluginMeta(pluginEntries, plugin, patch),
+            outputSchema
+          ).input(schema) as typeof inputBuilder
+      ) as unknown as ProcedureBuilderWithInput<
+        TContext,
+        InferSchemaOutput<TSchema>,
+        TError,
+        TPlugins,
+        TOutputSchema
+      >;
     },
 
-    handler<TResult>(
+    output<TNextOutputSchema extends StandardSchemaV1>(
+      nextOutputSchema: TNextOutputSchema
+    ): ProcedureBuilder<TContext, TError, TPlugins, TNextOutputSchema> {
+      return createProcedureBuilder<
+        TContext,
+        TError,
+        TPlugins,
+        TNextOutputSchema
+      >(middlewares, plugins, pluginEntries, nextOutputSchema);
+    },
+
+    handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
       fn: (
         ctx: TContext & BaseContext & ProcedureHelpers & { input: undefined }
       ) => MaybePromise<TResult>
     ): Procedure<
       TContext & BaseContext,
       undefined,
-      ProcedureOutputFromResult<TResult>,
+      ProcedureResolvedOutput<TOutputSchema, TResult>,
       TError | ProcedureErrorFromResult<TResult>
     > {
-      return {
+      const procedure: Procedure<
+        TContext & BaseContext,
+        undefined,
+        ProcedureResolvedOutput<TOutputSchema, TResult>,
+        TError | ProcedureErrorFromResult<TResult>
+      > = {
         _type: "procedure",
+        outputSchema,
         middlewares,
         handler: fn as Procedure<
           TContext & BaseContext,
           undefined,
-          ProcedureOutputFromResult<TResult>,
+          ProcedureResolvedOutput<TOutputSchema, TResult>,
           TError | ProcedureErrorFromResult<TResult>
         >["handler"],
         _ctx: {} as TContext & BaseContext,
         _input: undefined as undefined,
-        _output: {} as ProcedureOutputFromResult<TResult>,
+        _output: {} as ProcedureResolvedOutput<TOutputSchema, TResult>,
         _error: {} as TError | ProcedureErrorFromResult<TResult>,
       };
+
+      setProcedurePluginMeta(procedure, pluginEntries);
+      return procedure;
     },
   };
 
-  return builder as unknown as ProcedureBuilder<TContext, TError>;
+  return applyProcedurePluginMethods(
+    builder,
+    plugins,
+    (plugin, patch) =>
+      createProcedureBuilder<TContext, TError, TPlugins, TOutputSchema>(
+        middlewares,
+        plugins,
+        mergeProcedurePluginMeta(pluginEntries, plugin, patch),
+        outputSchema
+      ) as typeof builder
+  ) as unknown as ProcedureBuilder<TContext, TError, TPlugins, TOutputSchema>;
 }
 
 // ============================================================================
@@ -215,8 +558,21 @@ function createProcedureBuilder<TContext, TError extends AppRpcError>(
 /**
  * Create a router from procedures
  */
-export function createRouter<T extends Router>(procedures: T): T {
-  return procedures;
+export interface CreateRouterOptions<
+  TPlugins extends readonly RouterPluginUse[] = readonly RouterPluginUse[],
+> {
+  plugins?: TPlugins;
+}
+
+export function createRouter<
+  T extends Router,
+  TPlugins extends readonly RouterPluginUse[] = [],
+>(
+  procedures: T,
+  options: CreateRouterOptions<TPlugins> = {}
+): T & RouterPluginCarrier<TPlugins> {
+  setRouterPluginUses(procedures, options.plugins ?? []);
+  return procedures as T & RouterPluginCarrier<TPlugins>;
 }
 
 // ============================================================================
@@ -252,6 +608,65 @@ function collectProcedures(
   }
 
   return result;
+}
+
+function collectRouterPluginUses(router: Router): RouterPluginUse[] {
+  const result: RouterPluginUse[] = [];
+  const seen = new Map<string, string>();
+  const visited = new WeakSet<object>();
+
+  const visit = (node: unknown, path: string): void => {
+    if (typeof node !== "object" || node === null || visited.has(node)) {
+      return;
+    }
+
+    visited.add(node);
+
+    for (const pluginUse of getRouterPluginUses(node)) {
+      const existingPath = seen.get(pluginUse.plugin.name);
+      if (existingPath !== undefined) {
+        throw new Error(
+          `Duplicate bunrpc plugin "${pluginUse.plugin.name}" registered at ${existingPath} and ${path || "(root)"}`
+        );
+      }
+
+      seen.set(pluginUse.plugin.name, path || "(root)");
+      result.push(pluginUse);
+    }
+
+    for (const [key, value] of Object.entries(node)) {
+      if (isProcedure(value)) {
+        continue;
+      }
+
+      if (typeof value === "object" && value !== null) {
+        visit(value, path ? `${path}.${key}` : key);
+      }
+    }
+  };
+
+  visit(router, "");
+
+  return result;
+}
+
+function registerRoute(
+  routes: Record<
+    string,
+    (req: BunRequest<string>, server: Server<unknown>) => Promise<Response>
+  >,
+  path: string,
+  handler: BunRPCRouteHandler,
+  source: string
+): void {
+  if (path in routes) {
+    throw new Error(`Route "${path}" is already registered (${source})`);
+  }
+
+  routes[path] = async (
+    req: BunRequest<string>,
+    server: Server<unknown>
+  ) => Promise.resolve(handler(req, server));
 }
 
 function formatIssuePath(
@@ -299,7 +714,7 @@ export interface CreateBunRPCRoutesOptions {
 export function createBunRPCRoutes<T extends Router>(
   router: T,
   options: CreateBunRPCRoutesOptions = {}
-): BunRPCRoutes<T> {
+): BunRPCRoutes<T, RouterPluginExtensions<T>> {
   const { prefix = "/api", formatInternalServerError } = options;
   const procedures = collectProcedures(router);
   const routes: Record<
@@ -310,7 +725,7 @@ export function createBunRPCRoutes<T extends Router>(
   for (const { path, procedure } of procedures) {
     const fullPath = `${prefix}/${path}`;
 
-    routes[fullPath] = async (
+    registerRoute(routes, fullPath, async (
       req: BunRequest<string>,
       server: Server<unknown>
     ) => {
@@ -478,11 +893,46 @@ export function createBunRPCRoutes<T extends Router>(
 
         return Response.json(payload, { status: 500 });
       }
-    };
+    }, `rpc procedure ${fullPath}`);
+  }
+
+  const pluginExtensions = {} as RouterPluginExtensions<T>;
+  const pluginUses = collectRouterPluginUses(router);
+
+  for (const pluginUse of pluginUses) {
+    const setupResult = pluginUse.plugin.setup?.({
+      router,
+      prefix,
+      options: pluginUse.options,
+      procedures: procedures.map(({ path, procedure }) => ({
+        path,
+        fullPath: `${prefix}/${path}`,
+        procedure,
+        inputSchema: procedure.inputSchema,
+        outputSchema: procedure.outputSchema,
+        meta: getProcedurePluginMeta(procedure, pluginUse.plugin),
+      })),
+    });
+
+    if (setupResult?.routes) {
+      for (const [path, handler] of Object.entries(setupResult.routes)) {
+        registerRoute(
+          routes,
+          path,
+          handler,
+          `plugin ${pluginUse.plugin.name}`
+        );
+      }
+    }
+
+    (
+      pluginExtensions as unknown as Record<string, unknown>
+    )[pluginUse.plugin.name] = setupResult?.extension;
   }
 
   return {
     _router: router,
     routes,
+    plugins: pluginExtensions,
   };
 }

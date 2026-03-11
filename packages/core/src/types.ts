@@ -274,6 +274,12 @@ export function isValidationError<TData, TError extends RpcErrorUnion>(
 
 export type MaybePromise<T> = T | Promise<T>;
 
+type UnionToIntersection<T> = (
+  T extends unknown ? (value: T) => void : never
+) extends (value: infer TIntersection) => void
+  ? TIntersection
+  : never;
+
 export type ProcedureErrorFromResult<TResult> = Extract<
   Awaited<TResult>,
   ProcedureErrorResult<AppRpcError>
@@ -296,6 +302,8 @@ export type MiddlewareContextFromResult<TResult> = Awaited<TResult> extends {
     : never
   : never;
 
+declare const ROUTER_PLUGIN_USES: unique symbol;
+
 // ============================================================================
 // Context & Procedure types
 // ============================================================================
@@ -315,6 +323,7 @@ export interface Procedure<
 > {
   _type: "procedure";
   inputSchema?: StandardSchemaV1;
+  outputSchema?: StandardSchemaV1;
   middlewares: Array<
     (
       ctx: ProcedureMiddlewareOptions<Record<string, unknown>>
@@ -354,25 +363,203 @@ export type ProcedureAppError<TProcedure> = TProcedure extends {
   : never;
 
 // ============================================================================
+// Plugin types
+// ============================================================================
+
+export interface BunRPCRouteHandler {
+  (req: BunRequest<string>, server: Server<unknown>): Promise<Response> | Response;
+}
+
+export type ProcedureMetaPatch = Record<string, unknown>;
+
+export type BunRPCPluginProcedureMethods = Record<
+  string,
+  (...args: any[]) => ProcedureMetaPatch
+>;
+
+type PluginProcedureMetaFromMethods<
+  TMethods extends BunRPCPluginProcedureMethods,
+> = keyof TMethods extends never
+  ? never
+  : Partial<
+      UnionToIntersection<
+        ReturnType<TMethods[keyof TMethods]>
+      >
+    >;
+
+export interface BunRPCPluginProcedureInfo<TMeta = never> {
+  path: string;
+  fullPath: string;
+  procedure: AnyProcedure;
+  inputSchema?: StandardSchemaV1;
+  outputSchema?: StandardSchemaV1;
+  meta?: TMeta;
+}
+
+export interface BunRPCPluginSetupContext<
+  TProcedureMeta = never,
+  TRouterOptions = undefined,
+  TRouter extends Router = Router,
+> {
+  router: TRouter;
+  prefix: string;
+  procedures: Array<BunRPCPluginProcedureInfo<TProcedureMeta>>;
+  options: TRouterOptions;
+}
+
+export interface BunRPCPluginSetupResult<TExtension = undefined> {
+  extension?: TExtension;
+  routes?: Record<string, BunRPCRouteHandler>;
+}
+
+export interface ProcedurePluginUse<
+  TPlugin extends AnyBunRPCPlugin = AnyBunRPCPlugin,
+> {
+  type: "procedure-plugin";
+  plugin: TPlugin;
+}
+
+export interface BunRPCPluginDefinition<
+  TName extends string = string,
+  TProcedureMethods extends BunRPCPluginProcedureMethods = {},
+  TRouterOptions = undefined,
+  TExtension = undefined,
+> {
+  name: TName;
+  procedure?: TProcedureMethods;
+  setup?: (
+    ctx: BunRPCPluginSetupContext<
+      PluginProcedureMetaFromMethods<TProcedureMethods>,
+      TRouterOptions
+    >
+  ) => BunRPCPluginSetupResult<TExtension> | void;
+}
+
+export interface BunRPCPlugin<
+  TName extends string = string,
+  TProcedureMethods extends BunRPCPluginProcedureMethods = {},
+  TRouterOptions = undefined,
+  TExtension = undefined,
+> extends BunRPCPluginDefinition<
+    TName,
+    TProcedureMethods,
+    TRouterOptions,
+    TExtension
+  > {
+  (): ProcedurePluginUse<
+    BunRPCPlugin<TName, TProcedureMethods, TRouterOptions, TExtension>
+  >;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyBunRPCPlugin = BunRPCPlugin<string, any, any, any>;
+
+export type PluginName<TPlugin extends AnyBunRPCPlugin> = TPlugin["name"];
+
+export type PluginProcedureMeta<TPlugin extends AnyBunRPCPlugin> =
+  TPlugin extends BunRPCPlugin<any, infer TProcedureMethods, any, any>
+    ? TProcedureMethods extends BunRPCPluginProcedureMethods
+      ? PluginProcedureMetaFromMethods<TProcedureMethods>
+      : never
+    : never;
+
+export type PluginProcedureMethods<TPlugin extends AnyBunRPCPlugin> =
+  TPlugin extends BunRPCPlugin<any, infer TProcedureMethods, any, any>
+    ? TProcedureMethods
+    : never;
+
+export type PluginRouterOptions<TPlugin extends AnyBunRPCPlugin> =
+  TPlugin extends BunRPCPlugin<any, any, infer TRouterOptions, any>
+    ? TRouterOptions
+    : never;
+
+export type PluginExtension<TPlugin extends AnyBunRPCPlugin> =
+  TPlugin extends BunRPCPlugin<any, any, any, infer TExtension>
+    ? TExtension
+    : never;
+
+export interface ProcedurePluginEntry<
+  TPlugin extends AnyBunRPCPlugin = AnyBunRPCPlugin,
+> {
+  plugin: TPlugin;
+  meta: PluginProcedureMeta<TPlugin>;
+}
+
+export interface RouterPluginUse<
+  TPlugin extends AnyBunRPCPlugin = AnyBunRPCPlugin,
+> {
+  plugin: TPlugin;
+  options: PluginRouterOptions<TPlugin>;
+}
+
+// ============================================================================
 // Router types
 // ============================================================================
 
 export interface Router {
-  [key: string]: AnyProcedure | Router;
+  [key: string]: unknown;
 }
 
+export interface RouterPluginCarrier<
+  TPlugins extends readonly RouterPluginUse[] = readonly RouterPluginUse[],
+> {
+  readonly [ROUTER_PLUGIN_USES]?: TPlugins;
+}
+
+type StringRouterKey<T> = Extract<keyof T, string>;
+
+export type RouterPluginUsesOf<T> =
+  | (T extends RouterPluginCarrier<infer TPlugins>
+      ? TPlugins extends readonly RouterPluginUse[]
+        ? TPlugins[number]
+        : never
+      : never)
+  | {
+      [K in StringRouterKey<T>]: T[K] extends AnyProcedure
+        ? never
+        : T[K] extends object
+          ? RouterPluginUsesOf<T[K]>
+          : never;
+    }[StringRouterKey<T>];
+
+type RouterPluginNames<T> = RouterPluginUsesOf<T> extends RouterPluginUse<
+  infer TPlugin
+>
+  ? PluginName<TPlugin>
+  : never;
+
+type RouterPluginUseByName<T, TName extends string> = Extract<
+  RouterPluginUsesOf<T>,
+  { plugin: { name: TName } }
+>;
+
+export type RouterPluginExtensions<T extends Router> = {
+  [TName in RouterPluginNames<T>]: RouterPluginUseByName<
+    T,
+    TName
+  > extends RouterPluginUse<infer TPlugin>
+    ? PluginExtension<TPlugin>
+    : never;
+};
+
 /** Routes map returned by createBunRPCRoutes */
-export interface BunRPCRoutes<T extends Router> {
+export interface BunRPCRoutes<
+  T extends Router,
+  TPlugins extends Record<string, unknown> = RouterPluginExtensions<T>,
+> {
   _router: T;
-  routes: Record<
-    string,
-    (req: BunRequest<string>, server: Server<unknown>) => Promise<Response>
-  >;
+  routes: Record<string, BunRPCRouteHandler>;
+  plugins: TPlugins;
 }
 
 // ============================================================================
 // Client types - inferred from Router type only
 // ============================================================================
+
+export interface ClientRequestOptions {
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}
 
 type ProcedureServerSystemErrorsByInput<TInput> =
   | SystemRpcError<"METHOD_NOT_ALLOWED">
@@ -413,16 +600,20 @@ export type ProcedureClientError<P> = ProcedureClientErrorByParts<
 export type ProcedureResult<P> = RpcResult<ProcedureOutput<P>, ProcedureClientError<P>>;
 
 export type InferClient<T> = {
-  [K in keyof T]: T[K] extends {
+  [K in StringRouterKey<T>]: T[K] extends {
     _type: "procedure";
     _input: infer TInput;
     _output: infer TOutput;
     _error: infer TAppError;
   }
     ? TInput extends undefined
-      ? () => Promise<ProcedureResultByParts<TInput, TOutput, TAppError>>
+      ? (
+          input?: undefined,
+          requestOptions?: ClientRequestOptions
+        ) => Promise<ProcedureResultByParts<TInput, TOutput, TAppError>>
       : (
-          input: TInput
+          input: TInput,
+          requestOptions?: ClientRequestOptions
         ) => Promise<ProcedureResultByParts<TInput, TOutput, TAppError>>
     : T[K] extends object
       ? InferClient<T[K]>

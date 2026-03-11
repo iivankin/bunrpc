@@ -1,6 +1,7 @@
 {
   "name": "@bunrpc/example",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "server": "bun run server.ts",
@@ -8,6 +9,7 @@
   },
   "dependencies": {
     "@bunrpc/core": "workspace:*",
+    "@bunrpc/openapi": "workspace:*",
     "@bunrpc/react": "workspace:*",
     "@tanstack/react-query": "5.90.21",
     "react": "19.1.1",

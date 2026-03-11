@@ -1,19 +1,30 @@
 {
   "name": "brpc-monorepo",
   "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iivankin/bunrpc.git"
+  },
+  "homepage": "https://github.com/iivankin/bunrpc#readme",
+  "bugs": {
+    "url": "https://github.com/iivankin/bunrpc/issues"
+  },
   "type": "module",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "check": "bun run check:core && bun run check:react && bun run typecheck:example",
+    "check": "bun run check:core && bun run check:openapi && bun run check:react && bun run typecheck:example",
     "check:core": "bun run --cwd packages/core check",
+    "check:openapi": "bun run --cwd packages/openapi check",
     "check:react": "bun run --cwd packages/react check",
-    "typecheck": "bun run typecheck:core && bun run typecheck:react && bun run typecheck:example",
+    "typecheck": "bun run typecheck:core && bun run typecheck:openapi && bun run typecheck:react && bun run typecheck:example",
     "typecheck:core": "bun run --cwd packages/core typecheck",
+    "typecheck:openapi": "bun run --cwd packages/openapi typecheck",
     "typecheck:react": "bun run --cwd packages/react typecheck",
     "typecheck:example": "bun run --cwd apps/example typecheck",
-    "test": "bun run --cwd packages/core test && bun run --cwd packages/react test"
+    "test": "bun run --cwd packages/core test && bun run --cwd packages/openapi test && bun run --cwd packages/react test"
   }
 }

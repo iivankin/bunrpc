@@ -15,6 +15,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  type ClientRequestOptions,
   createClient,
   createRpcError,
   isRpcError,
@@ -45,6 +46,53 @@ type MutationOptions<TInput, TOutput, TError> = Omit<
   UseMutationOptions<TOutput, TError, TInput>,
   "mutationFn"
 >;
+
+type MutationVariables<TInput> = {
+  input: TInput;
+  requestOptions?: ClientRequestOptions;
+};
+
+type InternalMutationResult<TInput, TOutput, TError> = UseMutationResult<
+  TOutput,
+  TError,
+  MutationVariables<TInput>
+>;
+
+type InternalMutationCallOptions<TInput, TOutput, TError> = NonNullable<
+  Parameters<InternalMutationResult<TInput, TOutput, TError>["mutate"]>[1]
+>;
+
+type PublicMutationCallOptions<TInput, TOutput, TError> = NonNullable<
+  Parameters<UseMutationResult<TOutput, TError, TInput>["mutate"]>[1]
+>;
+
+type MutationCallOptions<TInput, TOutput, TError> =
+  PublicMutationCallOptions<TInput, TOutput, TError> & ClientRequestOptions;
+
+type MutationResult<TInput, TOutput, TError> = Omit<
+  InternalMutationResult<TInput, TOutput, TError>,
+  "mutate" | "mutateAsync" | "variables"
+> & {
+  mutate: TInput extends undefined
+    ? (
+        input?: undefined,
+        options?: MutationCallOptions<TInput, TOutput, TError>
+      ) => void
+    : (
+        input: TInput,
+        options?: MutationCallOptions<TInput, TOutput, TError>
+      ) => void;
+  mutateAsync: TInput extends undefined
+    ? (
+        input?: undefined,
+        options?: MutationCallOptions<TInput, TOutput, TError>
+      ) => Promise<TOutput>
+    : (
+        input: TInput,
+        options?: MutationCallOptions<TInput, TOutput, TError>
+      ) => Promise<TOutput>;
+  variables: TInput | undefined;
+};
 
 type InfiniteQueryOptions<TOutput, TError, TPageParam> = Omit<
   UseInfiniteQueryOptions<
@@ -108,7 +156,7 @@ interface QueryHooks<
 
   useMutation: (
     options?: MutationOptions<TInput, TOutput, RpcError<TErrorPayload>>
-  ) => UseMutationResult<TOutput, RpcError<TErrorPayload>, TInput>;
+  ) => MutationResult<TInput, TOutput, RpcError<TErrorPayload>>;
 
   useInfiniteQuery: InfiniteQueryHook<TInput, TOutput, TErrorPayload>;
 
@@ -117,14 +165,14 @@ interface QueryHooks<
     : (input: TInput) => QueryKey;
 }
 
-type InferQueryClient<T extends Router> = {
-  [K in keyof T]: T[K] extends AnyProcedure
+type InferQueryClient<T extends object> = {
+  [K in Extract<keyof T, string>]: T[K] extends AnyProcedure
     ? QueryHooks<
         ProcedureInput<T[K]>,
         ProcedureOutput<T[K]>,
         ProcedureClientError<T[K]>
       >
-    : T[K] extends Router
+    : T[K] extends object
       ? InferQueryClient<T[K]>
       : never;
 };
@@ -160,6 +208,52 @@ function buildInfiniteQueryInput(
   );
 }
 
+function buildMutationVariables<TInput>(
+  input: TInput,
+  requestOptions?: ClientRequestOptions
+): MutationVariables<TInput> {
+  return requestOptions === undefined ? { input } : { input, requestOptions };
+}
+
+function splitMutationCallOptions<TInput, TOutput, TError>(
+  options?: MutationCallOptions<TInput, TOutput, TError>
+): {
+  requestOptions?: ClientRequestOptions;
+  mutateOptions?: InternalMutationCallOptions<TInput, TOutput, TError>;
+} {
+  if (!options) {
+    return {};
+  }
+
+  const { headers, signal, onSuccess, onError, onSettled, ...mutateOptions } =
+    options;
+
+  const wrappedMutateOptions: InternalMutationCallOptions<TInput, TOutput, TError> = {
+    ...mutateOptions,
+    onSuccess: onSuccess
+      ? (data, variables, onMutateResult, context) =>
+          onSuccess(data, variables.input, onMutateResult, context)
+      : undefined,
+    onError: onError
+      ? (error, variables, onMutateResult, context) =>
+          onError(error, variables.input, onMutateResult, context)
+      : undefined,
+    onSettled: onSettled
+      ? (data, error, variables, onMutateResult, context) =>
+          onSettled(data, error, variables.input, onMutateResult, context)
+      : undefined,
+  };
+
+  return {
+    requestOptions:
+      headers === undefined && signal === undefined ? undefined : { headers, signal },
+    mutateOptions:
+      Object.keys(wrappedMutateOptions).length === 0
+        ? undefined
+        : wrappedMutateOptions,
+  };
+}
+
 export function createQueryClient<TRouter extends Router>(
   config: ClientConfig = {}
 ): InferQueryClient<TRouter> {
@@ -167,7 +261,8 @@ export function createQueryClient<TRouter extends Router>(
 
   function callSafeProcedure(
     pathParts: string[],
-    input: unknown
+    input: unknown,
+    requestOptions?: ClientRequestOptions
   ): Promise<RpcResult<unknown, RpcErrorUnion>> {
     let current: unknown = safeClient;
 
@@ -186,14 +281,21 @@ export function createQueryClient<TRouter extends Router>(
       throw createPathTraversalError(pathParts);
     }
 
-    return (current as (value: unknown) => Promise<RpcResult<unknown, RpcErrorUnion>>)(
-      input
-    );
+    return (
+      current as (
+        value: unknown,
+        requestOptions?: ClientRequestOptions
+      ) => Promise<RpcResult<unknown, RpcErrorUnion>>
+    )(input, requestOptions);
   }
 
-  async function rpcFetch(pathParts: string[], input: unknown): Promise<unknown> {
+  async function rpcFetch(
+    pathParts: string[],
+    input: unknown,
+    requestOptions?: ClientRequestOptions
+  ): Promise<unknown> {
     try {
-      const result = await callSafeProcedure(pathParts, input);
+      const result = await callSafeProcedure(pathParts, input, requestOptions);
 
       if (!result.ok) {
         throw createRpcError(result.error);
@@ -236,7 +338,7 @@ export function createQueryClient<TRouter extends Router>(
 
         return useQuery({
           queryKey: buildQueryKey(pathParts, input),
-          queryFn: () => rpcFetch(pathParts, input),
+          queryFn: ({ signal }) => rpcFetch(pathParts, input, { signal }),
           ...options,
         });
       },
@@ -244,10 +346,67 @@ export function createQueryClient<TRouter extends Router>(
       useMutation: (
         options?: MutationOptions<unknown, unknown, RpcError<RpcErrorUnion>>
       ) => {
-        return useMutation({
-          mutationFn: (input: unknown) => rpcFetch(pathParts, input),
-          ...options,
+        const { onMutate, onSuccess, onError, onSettled, ...mutationOptions } =
+          options ?? {};
+
+        const mutation = useMutation({
+          ...mutationOptions,
+          mutationFn: (variables: MutationVariables<unknown>) =>
+            rpcFetch(pathParts, variables.input, variables.requestOptions),
+          onMutate: onMutate
+            ? (variables: MutationVariables<unknown>, context) =>
+                onMutate(variables.input, context)
+            : undefined,
+          onSuccess: onSuccess
+            ? (data, variables, onMutateResult, context) =>
+                onSuccess(data, variables.input, onMutateResult, context)
+            : undefined,
+          onError: onError
+            ? (error, variables, onMutateResult, context) =>
+                onError(error, variables.input, onMutateResult, context)
+            : undefined,
+          onSettled: onSettled
+            ? (data, error, variables, onMutateResult, context) =>
+                onSettled(data, error, variables.input, onMutateResult, context)
+            : undefined,
         });
+
+        return {
+          ...mutation,
+          mutate: (
+            input: unknown,
+            mutationCallOptions?: MutationCallOptions<
+              unknown,
+              unknown,
+              RpcError<RpcErrorUnion>
+            >
+          ) => {
+            const { requestOptions, mutateOptions } =
+              splitMutationCallOptions(mutationCallOptions);
+
+            mutation.mutate(
+              buildMutationVariables(input, requestOptions),
+              mutateOptions
+            );
+          },
+          mutateAsync: (
+            input: unknown,
+            mutationCallOptions?: MutationCallOptions<
+              unknown,
+              unknown,
+              RpcError<RpcErrorUnion>
+            >
+          ) => {
+            const { requestOptions, mutateOptions } =
+              splitMutationCallOptions(mutationCallOptions);
+
+            return mutation.mutateAsync(
+              buildMutationVariables(input, requestOptions),
+              mutateOptions
+            );
+          },
+          variables: mutation.variables?.input,
+        };
       },
 
       useInfiniteQuery: <TPageParam>(
@@ -262,8 +421,12 @@ export function createQueryClient<TRouter extends Router>(
 
         return useInfiniteQuery({
           queryKey: buildQueryKey(pathParts, input),
-          queryFn: ({ pageParam }) =>
-            rpcFetch(pathParts, buildInfiniteQueryInput(input, pageParam as TPageParam)),
+          queryFn: ({ pageParam, signal }) =>
+            rpcFetch(
+              pathParts,
+              buildInfiniteQueryInput(input, pageParam as TPageParam),
+              { signal }
+            ),
           initialPageParam: initialCursor as TPageParam,
           getNextPageParam: getNextCursor,
           ...queryOptions,
@@ -312,7 +475,7 @@ function isQueryOptions(obj: unknown): obj is QueryOptions<unknown, RpcError> {
   return optionKeys.some((key) => key in obj);
 }
 
-export function useRpcUtils<TRouter extends Router>(
+export function useRpcUtils<TRouter extends object>(
   _rpc: InferQueryClient<TRouter>
 ) {
   const queryClient = useQueryClient();

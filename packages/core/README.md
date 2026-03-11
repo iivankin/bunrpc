@@ -164,6 +164,7 @@ import type { AppRouter } from "./server";
 const queryClient = new QueryClient();
 const rpc = createQueryClient<AppRouter>({
   baseUrl: "/api", // default value
+  log: true, // default outside production
 });
 
 function ChatList() {
@@ -218,9 +219,21 @@ import type { AppRouter } from "./server";
 
 const client = createClient<AppRouter>({
   baseUrl: "/api", // default value
+  log: true, // default outside production
 });
 
 const result = await client.chat.create({ title: "Roadmap" });
+
+const abortController = new AbortController();
+const authedResult = await client.chat.create(
+  { title: "Roadmap" },
+  {
+    headers: {
+      Authorization: "Bearer demo-user",
+    },
+    signal: abortController.signal,
+  }
+);
 
 if (!result.ok) {
   if (isAppError(result)) {
@@ -238,6 +251,72 @@ if (!result.ok) {
 ```
 
 If frontend and API are on the same domain, use `baseUrl: "/api"` (or omit `baseUrl` entirely since `"/api"` is default).
+
+`createClient` and `createQueryClient` support `log`, which prints styled request/response traces in development and defaults to `true` outside production.
+
+Per-request request options are passed as the second argument. For procedures without input, use `client.ping(undefined, { signal })`.
+
+## Plugins
+
+`@bunrpc/core` supports typed plugins for router-level extensions such as OpenAPI or MCP.
+
+```ts
+import {
+  createBunRPCRoutes,
+  createProcedure,
+  createRouter,
+  definePlugin,
+  useRouterPlugin,
+} from "@bunrpc/core";
+
+const openapiPlugin = definePlugin<
+  "openapi",
+  {
+    description: (description: string) => { description: string };
+  },
+  { documentPath: string },
+  { document: { paths: string[] } }
+>({
+  name: "openapi",
+  procedure: {
+    description: (description) => ({ description }),
+  },
+  setup: ({ options, procedures }) => {
+    const document = {
+      paths: procedures.map((procedure) => procedure.fullPath),
+    };
+
+    return {
+      extension: { document },
+      routes: {
+        [options.documentPath]: () => Response.json(document),
+      },
+    };
+  },
+});
+
+const publicProcedure = createProcedure().use(openapiPlugin());
+
+const chatRouter = createRouter(
+  {
+    list: publicProcedure
+      .description("List chats")
+      .handler(() => []),
+  },
+  {
+    plugins: [
+      useRouterPlugin(openapiPlugin, {
+        documentPath: "/openapi.json",
+      }),
+    ],
+  }
+);
+
+const rpc = createBunRPCRoutes({ chat: chatRouter });
+
+rpc.plugins.openapi.document.paths;
+rpc.routes["/openapi.json"];
+```
 
 ## Error Model
 
@@ -257,8 +336,11 @@ Common system codes:
 
 ## API Overview
 
-- `createProcedure()` - middleware/procedure builder
+- `createProcedure().use(plugin())` - register a procedure plugin and expose its custom builder methods
 - `createRouter()` - group procedures in a nested router
+- `definePlugin()` - create a typed plugin descriptor
+- `definePlugin({ procedure: { ... } })` - declare custom procedure builder methods such as `.description(...)`
+- `useRouterPlugin()` - register a plugin on a router with typed options
 - `createBunRPCRoutes()` - generate `Bun.serve()` route handlers with optional internal error formatter
 - cookies: use Bun `req.cookies` (`CookieMap`) in middleware/handlers
 - `createClient()` - safe RPC client returning `RpcResult`
