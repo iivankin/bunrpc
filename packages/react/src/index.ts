@@ -69,10 +69,15 @@ type PublicMutationCallOptions<TInput, TOutput, TError> = NonNullable<
 type MutationCallOptions<TInput, TOutput, TError> =
   PublicMutationCallOptions<TInput, TOutput, TError> & ClientRequestOptions;
 
-type MutationResult<TInput, TOutput, TError> = Omit<
+type DistributiveOmit<T, TKey extends keyof any> = T extends unknown
+  ? Omit<T, TKey>
+  : never;
+
+type Override<T, TOverrides> = DistributiveOmit<T, keyof TOverrides> & TOverrides;
+
+type MutationResult<TInput, TOutput, TError> = Override<
   InternalMutationResult<TInput, TOutput, TError>,
-  "mutate" | "mutateAsync" | "variables"
-> & {
+  {
   mutate: TInput extends undefined
     ? (
         input?: undefined,
@@ -92,7 +97,8 @@ type MutationResult<TInput, TOutput, TError> = Omit<
         options?: MutationCallOptions<TInput, TOutput, TError>
       ) => Promise<TOutput>;
   variables: TInput | undefined;
-};
+}
+>;
 
 type InfiniteQueryOptions<TOutput, TError, TPageParam> = Omit<
   UseInfiniteQueryOptions<

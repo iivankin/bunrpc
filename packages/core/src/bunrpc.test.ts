@@ -847,7 +847,7 @@ describe("bunrpc", () => {
       });
     });
 
-    test("logs pretty request and response traces when enabled", async () => {
+    test("logs custom headers and skips undefined input", async () => {
       const mockFetch = mock(() =>
         Promise.resolve(
           new Response(JSON.stringify({ items: [] }), { status: 200 })
@@ -855,9 +855,11 @@ describe("bunrpc", () => {
       );
 
       const itemsRouter = createRouter({
-        list: createProcedure().handler(() => ({
-          items: [] as Array<{ id: string }>,
-        })),
+        list: createProcedure()
+          .input(createSingleStringFieldSchema("cursor"))
+          .handler(() => ({
+            items: [] as Array<{ id: string }>,
+          })),
       });
 
       await withMockedConsole(async ({ groupCollapsed, groupEnd, log }) => {
@@ -865,16 +867,36 @@ describe("bunrpc", () => {
           baseUrl: "/api",
           fetch: mockFetch,
           log: true,
+          headers: {
+            Authorization: "Bearer global",
+          },
         });
 
-        await client.items.list();
+        await client.items.list(
+          { cursor: "cursor_1" },
+          {
+            headers: {
+              "X-Request": "1",
+            },
+          }
+        );
 
         expect(groupCollapsed).toHaveBeenCalled();
         expect(groupCollapsed.mock.calls).toHaveLength(2);
         expect(String(groupCollapsed.mock.calls[0]?.[0])).toContain("request");
         expect(String(groupCollapsed.mock.calls[1]?.[0])).toContain("response");
         expect(groupEnd.mock.calls).toHaveLength(2);
-        expect(log.mock.calls).toContainEqual(["input", undefined]);
+        expect(log.mock.calls).toContainEqual([
+          "headers",
+          {
+            Authorization: "Bearer global",
+            "X-Request": "1",
+          },
+        ]);
+        expect(log.mock.calls).toContainEqual([
+          "input",
+          { cursor: "cursor_1" },
+        ]);
         expect(log.mock.calls).toContainEqual(["response", { items: [] }]);
       });
     });
@@ -891,7 +913,7 @@ describe("bunrpc", () => {
           ping: createProcedure().handler(() => ({ ok: true })),
         });
 
-        await withMockedConsole(async ({ groupCollapsed }) => {
+        await withMockedConsole(async ({ groupCollapsed, log }) => {
           const client = createClient<{ api: typeof apiRouter }>({
             baseUrl: "/api",
             fetch: mockFetch,
@@ -899,7 +921,13 @@ describe("bunrpc", () => {
 
           await client.api.ping();
 
-          expect(groupCollapsed).toHaveBeenCalled();
+          expect(groupCollapsed).not.toHaveBeenCalled();
+          expect(log).toHaveBeenCalled();
+          expect(
+            log.mock.calls.some((call) =>
+              String(call[0]).includes("[bunrpc]")
+            )
+          ).toBe(true);
         });
       } finally {
         process.env.NODE_ENV = originalNodeEnv;
@@ -932,6 +960,29 @@ describe("bunrpc", () => {
       } finally {
         process.env.NODE_ENV = originalNodeEnv;
       }
+    });
+
+    test("does not log undefined input or empty request groups", async () => {
+      const mockFetch = mock(() =>
+        Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+      );
+      const apiRouter = createRouter({
+        ping: createProcedure().handler(() => ({ ok: true })),
+      });
+
+      await withMockedConsole(async ({ groupCollapsed, groupEnd, log }) => {
+        const client = createClient<{ api: typeof apiRouter }>({
+          baseUrl: "/api",
+          fetch: mockFetch,
+          log: true,
+        });
+
+        await client.api.ping();
+
+        expect(groupCollapsed).not.toHaveBeenCalled();
+        expect(groupEnd).not.toHaveBeenCalled();
+        expect(log.mock.calls).not.toContainEqual(["input", undefined]);
+      });
     });
   });
 });

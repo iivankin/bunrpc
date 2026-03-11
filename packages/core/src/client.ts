@@ -77,6 +77,7 @@ type ClientCallResult =
   | { ok: false; error: RpcErrorUnion };
 
 interface ClientLogEvent {
+  customHeaders?: Record<string, string>;
   durationMs?: number;
   input: unknown;
   result?: ClientCallResult;
@@ -147,7 +148,66 @@ function formatDuration(durationMs: number): string {
   return `${durationMs.toFixed(durationMs >= 100 ? 0 : 1)}ms`;
 }
 
+function hasClientLogDetails(event: ClientLogEvent): boolean {
+  return event.input !== undefined || event.customHeaders !== undefined;
+}
+
+function logRequestSummary(event: ClientLogEvent): void {
+  if (isBrowserConsole()) {
+    console.log(
+      "%c bunrpc %c request %c %s %c POST %s",
+      "background:#111827;color:#f8fafc;border-radius:999px;padding:2px 8px;font-weight:700;",
+      "color:#2563eb;font-weight:700;",
+      "color:#0f172a;font-weight:700;",
+      event.procedurePath,
+      "color:#64748b;",
+      event.url
+    );
+    return;
+  }
+
+  console.log(
+    `${ANSI.cyan}${ANSI.bold}[bunrpc]${ANSI.reset} ${ANSI.blue}request${ANSI.reset} ${ANSI.bold}${event.procedurePath}${ANSI.reset} ${ANSI.dim}POST ${event.url}${ANSI.reset}`
+  );
+}
+
+function logResponseSummary(event: ClientLogEvent, statusLabel: string): void {
+  if (event.durationMs === undefined) {
+    return;
+  }
+
+  if (isBrowserConsole()) {
+    console.log(
+      "%c bunrpc %c response %c %s %c %s %c %s",
+      "background:#111827;color:#f8fafc;border-radius:999px;padding:2px 8px;font-weight:700;",
+      `color:${event.result?.ok ? "#16a34a" : "#dc2626"};font-weight:700;`,
+      "color:#0f172a;font-weight:700;",
+      event.procedurePath,
+      "color:#64748b;",
+      formatDuration(event.durationMs),
+      `color:${event.result?.ok ? "#16a34a" : "#dc2626"};font-weight:700;`,
+      statusLabel
+    );
+    return;
+  }
+
+  console.log(
+    `${ANSI.cyan}${ANSI.bold}[bunrpc]${ANSI.reset} ${
+      event.result?.ok ? ANSI.green : ANSI.red
+    }response${ANSI.reset} ${ANSI.bold}${event.procedurePath}${ANSI.reset} ${ANSI.dim}${formatDuration(
+      event.durationMs
+    )}${ANSI.reset} ${
+      event.result?.ok ? ANSI.green : ANSI.red
+    }${statusLabel}${ANSI.reset}`
+  );
+}
+
 function logClientRequest(event: ClientLogEvent): void {
+  if (!hasClientLogDetails(event)) {
+    logRequestSummary(event);
+    return;
+  }
+
   if (isBrowserConsole()) {
     openLogGroup(
       "%c bunrpc %c request %c %s %c POST %s",
@@ -158,7 +218,12 @@ function logClientRequest(event: ClientLogEvent): void {
       "color:#64748b;",
       event.url
     );
-    logPayload("input", event.input);
+    if (event.customHeaders) {
+      logPayload("headers", event.customHeaders);
+    }
+    if (event.input !== undefined) {
+      logPayload("input", event.input);
+    }
     closeLogGroup();
     return;
   }
@@ -166,7 +231,12 @@ function logClientRequest(event: ClientLogEvent): void {
   openLogGroup(
     `${ANSI.cyan}${ANSI.bold}[bunrpc]${ANSI.reset} ${ANSI.blue}request${ANSI.reset} ${ANSI.bold}${event.procedurePath}${ANSI.reset} ${ANSI.dim}POST ${event.url}${ANSI.reset}`
   );
-  logPayload("input", event.input);
+  if (event.customHeaders) {
+    logPayload("headers", event.customHeaders);
+  }
+  if (event.input !== undefined) {
+    logPayload("input", event.input);
+  }
   closeLogGroup();
 }
 
@@ -180,6 +250,12 @@ function logClientResponse(event: ClientLogEvent): void {
     : `${event.result.error.source}:${event.result.error.code}`;
   const payloadLabel = event.result.ok ? "response" : "error";
 
+  if (!hasClientLogDetails(event)) {
+    logResponseSummary(event, statusLabel);
+    logPayload(payloadLabel, event.result.ok ? event.result.data : event.result.error);
+    return;
+  }
+
   if (isBrowserConsole()) {
     openLogGroup(
       "%c bunrpc %c response %c %s %c %s %c %s",
@@ -192,7 +268,12 @@ function logClientResponse(event: ClientLogEvent): void {
       `color:${event.result.ok ? "#16a34a" : "#dc2626"};font-weight:700;`,
       statusLabel
     );
-    logPayload("input", event.input);
+    if (event.customHeaders) {
+      logPayload("headers", event.customHeaders);
+    }
+    if (event.input !== undefined) {
+      logPayload("input", event.input);
+    }
     logPayload(payloadLabel, event.result.ok ? event.result.data : event.result.error);
     closeLogGroup();
     return;
@@ -207,7 +288,12 @@ function logClientResponse(event: ClientLogEvent): void {
       event.result.ok ? ANSI.green : ANSI.red
     }${statusLabel}${ANSI.reset}`
   );
-  logPayload("input", event.input);
+  if (event.customHeaders) {
+    logPayload("headers", event.customHeaders);
+  }
+  if (event.input !== undefined) {
+    logPayload("input", event.input);
+  }
   logPayload(payloadLabel, event.result.ok ? event.result.data : event.result.error);
   closeLogGroup();
 }
@@ -242,18 +328,12 @@ export function createClient<TRouter extends Router>(
     const path = `${baseUrl}/${pathParts.join("/")}`;
     const procedurePath = pathParts.join(".");
     const startedAt = Date.now();
-
-    if (shouldLog) {
-      logClientRequest({
-        input,
-        procedurePath,
-        url: path,
-      });
-    }
+    let loggedCustomHeaders: Record<string, string> | undefined;
 
     const finalize = (result: ClientCallResult): ClientCallResult => {
       if (shouldLog) {
         logClientResponse({
+          customHeaders: loggedCustomHeaders,
           durationMs: Date.now() - startedAt,
           input,
           procedurePath,
@@ -278,11 +358,26 @@ export function createClient<TRouter extends Router>(
       });
     }
 
+    const customHeaders = {
+      ...requestHeaders,
+      ...requestOptions?.headers,
+    };
+    loggedCustomHeaders =
+      Object.keys(customHeaders).length === 0 ? undefined : customHeaders;
+
+    if (shouldLog) {
+      logClientRequest({
+        customHeaders: loggedCustomHeaders,
+        input,
+        procedurePath,
+        url: path,
+      });
+    }
+
     const options: RequestInit = {
       method: "POST",
       headers: {
-        ...requestHeaders,
-        ...requestOptions?.headers,
+        ...customHeaders,
         "Content-Type": "application/json",
       },
       signal: requestOptions?.signal,

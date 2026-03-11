@@ -130,6 +130,33 @@ test("mutation client accepts request options on mutate calls", () => {
   ).toBe(true);
 });
 
+test("mutation result narrows data on isSuccess", () => {
+  type EmitProcedure = Procedure<
+    Record<string, never>,
+    { prompt: string },
+    { runId: string },
+    never
+  >;
+
+  const rpc = createQueryClient<{
+    emit: {
+      run: EmitProcedure;
+    };
+  }>();
+
+  type Mutation = ReturnType<typeof rpc.emit.run.useMutation>;
+
+  const readRunId = (mutation: Mutation): string | null => {
+    if (mutation.isSuccess) {
+      return mutation.data.runId;
+    }
+
+    return null;
+  };
+
+  expect(readRunId as unknown).toBeDefined();
+});
+
 test("rpc error narrows by top-level source/code", () => {
   type ErrorUnion =
     | AppRpcError<"TITLE_TOO_LONG", { max: number }>
