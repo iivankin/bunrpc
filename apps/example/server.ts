@@ -76,6 +76,11 @@ const chatRouter = router({
     })
     .handler(({ userId }) => chats.filter((chat) => chat.ownerId === userId)),
 
+  // Available over regular HTTP, but intentionally omitted from OpenAPI docs.
+  internalStats: publicProcedure
+    .openapi(false)
+    .handler(() => ({ totalChats: chats.length })),
+
   create: authProcedure
     .input(CreateChatSchema)
     .output(ChatSchema)

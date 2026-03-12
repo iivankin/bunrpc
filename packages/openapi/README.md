@@ -84,6 +84,7 @@ After `b.use(openapi(...))` you get:
 
 After `b.use(openapi(...))`, procedures get these typed methods:
 
+- `.openapi(boolean?)`
 - `.operationId(string)`
 - `.summary(string)`
 - `.description(string)`
@@ -94,6 +95,8 @@ After `b.use(openapi(...))`, procedures get these typed methods:
 - `.responses(responses)`
 
 `summary` and `description` are optional. If you do not call them, the operation still appears in the generated document.
+
+`.openapi(false)` hides a procedure from the generated OpenAPI document. If you do not call `.openapi(...)`, the procedure is included by default.
 
 Only procedures that are part of the normal HTTP surface are included in the document. Plugin-hidden routes, such as MCP-only handlers, are skipped automatically.
 

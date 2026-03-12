@@ -142,6 +142,7 @@ export interface SwaggerUIOptions {
 }
 
 export interface OpenAPIProcedureMeta {
+  openapi?: boolean;
   operationId?: string;
   summary?: string;
   description?: string;

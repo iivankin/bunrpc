@@ -29,6 +29,7 @@ interface StandardSchemaWithJSONSchema extends StandardSchemaV1 {
 interface ResolvedSwaggerOptions extends Required<SwaggerUIOptions> {}
 
 export interface OpenAPIProcedureMethods {
+  openapi: (enabled?: boolean) => Pick<OpenAPIProcedureMeta, "openapi">;
   operationId: (
     operationId: string
   ) => Pick<OpenAPIProcedureMeta, "operationId">;
@@ -553,6 +554,7 @@ export function openapi(
     name: "openapi",
     options,
     methods: {
+      openapi: (enabled = true) => ({ openapi: enabled }),
       operationId: (operationId) => ({ operationId }),
       summary: (summary) => ({ summary }),
       description: (description) => ({ description }),
@@ -564,7 +566,7 @@ export function openapi(
     },
     setup: ({ options: pluginOptions, procedures }) => {
       const httpProcedures = procedures.filter(
-        (procedure) => procedure.httpExposed
+        (procedure) => procedure.httpExposed && procedure.meta?.openapi !== false
       );
       const documentPath = pluginOptions.documentPath ?? DEFAULT_DOCUMENT_PATH;
       const outputSchemaRegistry = createOutputSchemaRegistry(

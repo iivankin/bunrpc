@@ -106,8 +106,11 @@ describe("@bunrpc/openapi", () => {
     const authProcedure = publicProcedure.security({ bearerAuth: [] });
     const chatOutputSchema = createSingleStringFieldSchema("id", "Chat");
 
+    type OpenAPIArgs = Parameters<typeof publicProcedure.openapi>;
     type DescriptionArgs = Parameters<typeof publicProcedure.description>;
     type ResponsesArgs = Parameters<typeof publicProcedure.responses>;
+    const assertOpenAPIArgs: Expect<Equal<OpenAPIArgs, [enabled?: boolean]>> =
+      true;
     const assertDescriptionArgs: Expect<
       Equal<DescriptionArgs, [description: string]>
     > = true;
@@ -138,6 +141,10 @@ describe("@bunrpc/openapi", () => {
         .summary("Public info")
         .security()
         .handler(() => ({ ok: true })),
+      hidden: publicProcedure
+        .openapi(false)
+        .summary("Hidden operation")
+        .handler(() => ({ ok: true })),
     });
 
     const rpc = b.createHttpRoutes(
@@ -147,6 +154,7 @@ describe("@bunrpc/openapi", () => {
     );
     const document = rpc.plugins.openapi.document;
 
+    expect(assertOpenAPIArgs).toBe(true);
     expect(assertDescriptionArgs).toBe(true);
     expect(assertResponsesArgs).toBe(true);
 
@@ -222,6 +230,7 @@ describe("@bunrpc/openapi", () => {
       { bearerAuth: [] },
     ]);
     expect(document.paths["/api/chat/publicInfo"]?.post?.security).toEqual([]);
+    expect(document.paths["/api/chat/hidden"]).toBeUndefined();
 
     const documentResponse = await rpc.routes["/openapi.json"]!(
       new Request("http://localhost/openapi.json") as BunRequest<string>,
@@ -230,6 +239,16 @@ describe("@bunrpc/openapi", () => {
     const documentPayload = await documentResponse.json();
 
     expect(documentPayload).toEqual(document);
+
+    const hiddenRouteResponse = await rpc.routes["/api/chat/hidden"]!(
+      new Request("http://localhost/api/chat/hidden", {
+        method: "POST",
+      }) as BunRequest<string>,
+      {} as never
+    );
+
+    expect(hiddenRouteResponse.status).toBe(200);
+    expect(await hiddenRouteResponse.json()).toEqual({ ok: true });
 
     const swaggerResponse = await rpc.routes["/docs"]!(
       new Request("http://localhost/docs") as BunRequest<string>,
