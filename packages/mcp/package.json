@@ -1,6 +1,6 @@
 {
   "name": "@bunrpc/mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP plugin for @bunrpc/core",
   "license": "Apache-2.0",
   "repository": {
@@ -36,12 +36,11 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit",
-    "check": "bun run typecheck && bun test",
-    "prepublishOnly": "bun run check"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run typecheck && bun run test"
   },
   "dependencies": {
-    "@bunrpc/core": "^0.1.0",
+    "@bunrpc/core": "^0.1.7",
     "@modelcontextprotocol/sdk": "1.27.1"
   },
   "devDependencies": {

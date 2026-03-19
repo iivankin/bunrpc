@@ -1,13 +1,13 @@
-import type { BunRequest } from "bun";
 import { describe, expect, test } from "bun:test";
 import { initBunRpc, type StandardSchemaV1 } from "@bunrpc/core";
+import type { BunRequest } from "bun";
 import type { OpenAPIResponsesObject } from "./index";
 import { openapi } from "./index";
 
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
-  T extends B ? 1 : 2
-  ? true
-  : false;
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 type Expect<T extends true> = T;
 
 function createSingleStringFieldSchema<TKey extends string>(
@@ -65,7 +65,10 @@ function createSingleStringFieldSchema<TKey extends string>(
       },
     },
   } as StandardSchemaV1<unknown, Record<TKey, string>> & {
-    "~standard": StandardSchemaV1<unknown, Record<TKey, string>>["~standard"] & {
+    "~standard": StandardSchemaV1<
+      unknown,
+      Record<TKey, string>
+    >["~standard"] & {
       jsonSchema: {
         input: () => unknown;
         output: () => unknown;

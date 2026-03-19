@@ -1,14 +1,14 @@
 interface BunRpcHttpErrorOptions {
-  source?: "app" | "system";
   code?: string;
+  source?: "app" | "system";
 }
 
 interface BunRpcHttpErrorPayload {
-  source: "app" | "system";
   code: string;
-  status: number;
-  message: string;
   details?: unknown;
+  message: string;
+  source: "app" | "system";
+  status: number;
 }
 
 export class BunRpcHttpError extends Error {

@@ -1,16 +1,16 @@
 import { expect, test } from "bun:test";
-import { createQueryClient, useRpcUtils } from "./index";
 import type { RpcError } from "@bunrpc/core";
 import type {
   AppRpcError,
   Procedure,
   SystemRpcError,
 } from "@bunrpc/core/types";
+import { createQueryClient, useRpcUtils } from "./index";
 
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
-  T extends B ? 1 : 2
-  ? true
-  : false;
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 type Expect<T extends true> = T;
 
 test("exports react helpers", () => {
@@ -50,16 +50,23 @@ test("query client exposes useInfiniteQuery helper", () => {
   type HasGetNextPageParam = "getNextPageParam" extends keyof OptionsArg
     ? true
     : false;
-  type HasInitialCursor = "initialCursor" extends keyof OptionsArg ? true : false;
-  type HasGetNextCursor = "getNextCursor" extends keyof OptionsArg ? true : false;
+  type HasInitialCursor = "initialCursor" extends keyof OptionsArg
+    ? true
+    : false;
+  type HasGetNextCursor = "getNextCursor" extends keyof OptionsArg
+    ? true
+    : false;
 
   const assertInputArg: Expect<Equal<InputArg, { limit: number }>> = true;
-  const assertNoInitialPageParam: Expect<Equal<HasInitialPageParam, false>> = true;
-  const assertNoGetNextPageParam: Expect<Equal<HasGetNextPageParam, false>> = true;
+  const assertNoInitialPageParam: Expect<Equal<HasInitialPageParam, false>> =
+    true;
+  const assertNoGetNextPageParam: Expect<Equal<HasGetNextPageParam, false>> =
+    true;
   const assertHasInitialCursor: Expect<Equal<HasInitialCursor, true>> = true;
   const assertHasGetNextCursor: Expect<Equal<HasGetNextCursor, true>> = true;
-  const assertCursorParam: Expect<Equal<OptionsArg["initialCursor"], string | undefined>> =
-    true;
+  const assertCursorParam: Expect<
+    Equal<OptionsArg["initialCursor"], string | undefined>
+  > = true;
   const getNextCursor: OptionsArg["getNextCursor"] = (lastPage) =>
     lastPage.nextCursor;
   const _strictCursorOnly: never = rpc.chat.byPage.useInfiniteQuery;
@@ -95,7 +102,9 @@ test("mutation client accepts request options on mutate calls", () => {
   type MutateInput = MutateArgs[0];
   type MutateOptions = NonNullable<MutateArgs[1]>;
   type MutateAsyncOptions = NonNullable<MutateAsyncArgs[1]>;
-  type HasSignal = MutateOptions extends { signal?: AbortSignal } ? true : false;
+  type HasSignal = MutateOptions extends { signal?: AbortSignal }
+    ? true
+    : false;
   type HasHeaders = MutateOptions extends {
     headers?: Record<string, string>;
   }

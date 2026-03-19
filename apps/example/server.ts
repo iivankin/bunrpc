@@ -134,7 +134,8 @@ const chatRouter = router({
     .output(ChatSchema)
     .tool({
       title: "Create Chat via MCP",
-      description: "Creates a chat that is exposed only through the MCP tool transport",
+      description:
+        "Creates a chat that is exposed only through the MCP tool transport",
     })
     .mcpOnlyHandler(({ input, userId, error }) => {
       if (input.title.length > 40) {

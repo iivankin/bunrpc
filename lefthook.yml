@@ -1,0 +1,12 @@
+$schema: ./node_modules/lefthook/schema.json
+glob_matcher: doublestar
+
+pre-commit:
+  parallel: false
+  jobs:
+    - name: ultracite
+      glob: "**/*.{js,jsx,ts,tsx,mjs,cjs,cts,mts,json,jsonc,css}"
+      run: bun ultracite fix "{staged_files}"
+      stage_fixed: true
+    - name: typecheck
+      run: bun run typecheck

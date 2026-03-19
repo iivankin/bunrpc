@@ -27,11 +27,11 @@ interface RpcErrorBase<
   TCode extends string,
   TDetails = unknown,
 > {
-  source: TSource;
   code: TCode;
-  status: number;
-  message?: string;
   details?: TDetails;
+  message?: string;
+  source: TSource;
+  status: number;
 }
 
 interface RpcErrorBaseWithMessage<
@@ -39,11 +39,11 @@ interface RpcErrorBaseWithMessage<
   TCode extends string,
   TDetails,
 > {
-  source: TSource;
   code: TCode;
-  status: number;
-  message: string;
   details?: TDetails;
+  message: string;
+  source: TSource;
+  status: number;
 }
 
 interface RpcErrorBaseWithDetails<
@@ -51,19 +51,21 @@ interface RpcErrorBaseWithDetails<
   TCode extends string,
   TDetails,
 > {
-  source: TSource;
   code: TCode;
-  status: number;
-  message: string;
   details: TDetails;
+  message: string;
+  source: TSource;
+  status: number;
 }
 
-export type AppRpcError<TCode extends string = string, TDetails = unknown> =
-  RpcErrorBase<"app", TCode, TDetails>;
+export type AppRpcError<
+  TCode extends string = string,
+  TDetails = unknown,
+> = RpcErrorBase<"app", TCode, TDetails>;
 
 export interface ValidationIssue {
-  path: string;
   message: string;
+  path: string;
 }
 
 export interface ValidationErrorDetails {
@@ -79,40 +81,41 @@ export type SystemRpcErrorCode =
   | "NETWORK_ERROR"
   | "BAD_RESPONSE";
 
-type SystemErrorDetailsMap = {
-  METHOD_NOT_ALLOWED: undefined;
-  INVALID_JSON: undefined;
-  VALIDATION_ERROR: ValidationErrorDetails;
+interface SystemErrorDetailsMap {
+  BAD_RESPONSE: { cause: string };
   HTTP_ERROR: unknown;
   INTERNAL_SERVER_ERROR: unknown;
+  INVALID_JSON: undefined;
+  METHOD_NOT_ALLOWED: undefined;
   NETWORK_ERROR: { cause: string };
-  BAD_RESPONSE: { cause: string };
-};
+  VALIDATION_ERROR: ValidationErrorDetails;
+}
 
 export type SystemErrorDetails<TCode extends SystemRpcErrorCode> =
   SystemErrorDetailsMap[TCode];
 
-export type SystemRpcError<TCode extends SystemRpcErrorCode = SystemRpcErrorCode> =
-  TCode extends SystemRpcErrorCode
-    ? undefined extends SystemErrorDetails<TCode>
-      ? RpcErrorBaseWithMessage<
-          "system",
-          TCode,
-          Exclude<SystemErrorDetails<TCode>, undefined>
-        >
-      : RpcErrorBaseWithDetails<"system", TCode, SystemErrorDetails<TCode>>
-    : never;
+export type SystemRpcError<
+  TCode extends SystemRpcErrorCode = SystemRpcErrorCode,
+> = TCode extends SystemRpcErrorCode
+  ? undefined extends SystemErrorDetails<TCode>
+    ? RpcErrorBaseWithMessage<
+        "system",
+        TCode,
+        Exclude<SystemErrorDetails<TCode>, undefined>
+      >
+    : RpcErrorBaseWithDetails<"system", TCode, SystemErrorDetails<TCode>>
+  : never;
 
 export type RpcErrorUnion = AppRpcError | SystemRpcError;
 
 export interface RpcResultOk<TData> {
-  ok: true;
   data: TData;
+  ok: true;
 }
 
 export interface RpcResultErr<TError extends RpcErrorUnion = RpcErrorUnion> {
-  ok: false;
   error: TError;
+  ok: false;
 }
 
 export type RpcResult<TData, TError extends RpcErrorUnion = RpcErrorUnion> =
@@ -124,22 +127,21 @@ export interface AppProcedureErrorInput<
   TDetails = unknown,
 > {
   code: TCode;
-  status: number;
-  message?: string;
   details?: TDetails;
+  message?: string;
+  status: number;
 }
 
 const PROCEDURE_ERROR_MARKER = "__bunrpcProcedureError" as const;
 
-export interface ProcedureErrorResult<TError extends AppRpcError = AppRpcError> {
-  readonly [PROCEDURE_ERROR_MARKER]: true;
+export interface ProcedureErrorResult<
+  TError extends AppRpcError = AppRpcError,
+> {
   readonly error: TError;
+  readonly [PROCEDURE_ERROR_MARKER]: true;
 }
 
-export type ProcedureErrorFactory = <
-  TCode extends string,
-  TDetails = unknown,
->(
+export type ProcedureErrorFactory = <TCode extends string, TDetails = unknown>(
   input: AppProcedureErrorInput<TCode, TDetails>
 ) => ProcedureErrorResult<AppRpcError<TCode, TDetails>>;
 
@@ -148,13 +150,13 @@ export interface ProcedureHelpers {
 }
 
 export interface ProcedureNextSuccess<TData = unknown> {
-  ok: true;
   data: TData;
+  ok: true;
 }
 
 export interface ProcedureNextError<TError extends AppRpcError = AppRpcError> {
-  ok: false;
   error: TError;
+  ok: false;
 }
 
 const NEXT_CONTEXT_MARKER = "__bunrpcNextContext" as const;
@@ -170,6 +172,12 @@ export type ProcedureNextResult<
   | (ProcedureNextError<TError> & {
       readonly [NEXT_CONTEXT_MARKER]?: TContextExtension;
     });
+
+export type ProcedureNextResultOrResponse<
+  TData = unknown,
+  TError extends AppRpcError = AppRpcError,
+  TContextExtension extends Record<string, unknown> = Record<string, never>,
+> = ProcedureNextResult<TData, TError, TContextExtension> | Response;
 
 export type AnyProcedureNextResult = ProcedureNextResult<
   unknown,
@@ -190,9 +198,13 @@ export type ProcedureMiddlewareOptions<
   TBaseContext &
   ProcedureHelpers &
   ProcedureMiddlewareMeta & {
-    next: <TContextExtension extends Record<string, unknown> = Record<string, never>>(
+    next: <
+      TContextExtension extends Record<string, unknown> = Record<string, never>,
+    >(
       contextExtension?: TContextExtension
-    ) => Promise<ProcedureNextResult<unknown, never, TContextExtension>>;
+    ) => Promise<
+      ProcedureNextResultOrResponse<unknown, never, TContextExtension>
+    >;
   };
 
 export function createAppError<TCode extends string, TDetails = unknown>(
@@ -278,32 +290,41 @@ export function isValidationError<TData, TError extends RpcErrorUnion>(
 export type MaybePromise<T> = T | Promise<T>;
 
 export type UnionToIntersection<T> = (
-  T extends unknown ? (value: T) => void : never
+  T extends unknown
+    ? (value: T) => void
+    : never
 ) extends (value: infer TIntersection) => void
   ? TIntersection
   : never;
 
-export type ProcedureErrorFromResult<TResult> = Extract<
-  Awaited<TResult>,
-  ProcedureErrorResult<AppRpcError>
-> extends infer TErrorResult
-  ? TErrorResult extends ProcedureErrorResult<infer TError>
-    ? TError
-    : never
-  : never;
+export type ProcedureErrorFromResult<TResult> =
+  Extract<
+    Awaited<TResult>,
+    ProcedureErrorResult<AppRpcError>
+  > extends infer TErrorResult
+    ? TErrorResult extends ProcedureErrorResult<infer TError>
+      ? TError
+      : never
+    : never;
 
 export type ProcedureOutputFromResult<TResult> = Exclude<
   Awaited<TResult>,
   ProcedureErrorResult<AppRpcError>
 >;
 
-export type MiddlewareContextFromResult<TResult> = Awaited<TResult> extends {
-  readonly [NEXT_CONTEXT_MARKER]?: infer TContext;
-}
-  ? TContext extends Record<string, unknown>
-    ? TContext
-    : never
-  : never;
+export type ProcedureResponseFromResult<TResult> = Extract<
+  Awaited<TResult>,
+  Response
+>;
+
+export type MiddlewareContextFromResult<TResult> =
+  Awaited<TResult> extends {
+    readonly [NEXT_CONTEXT_MARKER]?: infer TContext;
+  }
+    ? TContext extends Record<string, unknown>
+      ? TContext
+      : never
+    : never;
 
 // ============================================================================
 // Context & Procedure types
@@ -325,8 +346,8 @@ export type PluginHandlerMethodPatch<
 /** Base context passed to all handlers */
 export interface BaseContext {
   req: BunRequest<string>;
-  server: Server<unknown>;
   requestSource: string;
+  server: Server<unknown>;
 }
 
 /** Procedure definition - what .handler() returns */
@@ -337,23 +358,29 @@ export interface Procedure<
   TError extends AppRpcError = never,
   THttpExposed extends boolean = true,
 > {
+  // Type markers for inference
+  _ctx: TContext;
+  _error: TError;
+  _httpExposed: THttpExposed;
+  _input: TInput;
+  _output: TOutput;
   _type: "procedure";
+  handler: (
+    ctx: TContext & ProcedureHelpers & { input: TInput }
+  ) =>
+    | Promise<TOutput | ProcedureErrorResult<TError>>
+    | TOutput
+    | ProcedureErrorResult<TError>
+    | Response;
   inputSchema?: StandardSchemaV1;
-  outputSchema?: StandardSchemaV1;
   middlewares: Array<
     (
       ctx: ProcedureMiddlewareOptions<Record<string, unknown>>
-    ) => MaybePromise<AnyProcedureNextResult | ProcedureErrorResult<AppRpcError>>
+    ) => MaybePromise<
+      AnyProcedureNextResult | ProcedureErrorResult<AppRpcError> | Response
+    >
   >;
-  handler: (
-    ctx: TContext & ProcedureHelpers & { input: TInput }
-  ) => Promise<TOutput | ProcedureErrorResult<TError>> | TOutput | ProcedureErrorResult<TError>;
-  // Type markers for inference
-  _ctx: TContext;
-  _input: TInput;
-  _output: TOutput;
-  _error: TError;
-  _httpExposed: THttpExposed;
+  outputSchema?: StandardSchemaV1;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -391,9 +418,10 @@ export type ProcedureHttpExposed<TProcedure> = TProcedure extends {
 // Plugin types
 // ============================================================================
 
-export interface BunRPCRouteHandler {
-  (req: BunRequest<string>, server: Server<unknown>): Promise<Response> | Response;
-}
+export type BunRPCRouteHandler = (
+  req: BunRequest<string>,
+  server: Server<unknown>
+) => Promise<Response> | Response;
 
 /**
  * A regular procedure builder method like `.summary(...)` or `.tool(...)`.
@@ -407,26 +435,26 @@ export interface BunRPCPlugin<
   TMethods extends object = Record<string, never>,
   TProcedureMeta extends object = Record<string, never>,
   TExtension = unknown,
-  TContextExtensions extends Record<string, unknown> = Record<string, never>,
-  TRequestSource extends string = never,
+  _TContextExtensions extends Record<string, unknown> = Record<string, never>,
+  _TRequestSource extends string = never,
   THandlerMethods extends object = Record<string, never>,
 > {
-  /** Stable plugin id used in `http.plugins.<name>`. */
-  name: TName;
-  /** Plugin-local options captured when attaching it with `b.use(...)`. */
-  options: TOptions;
-  /** Chainable builder methods that only attach metadata. */
-  methods?: TMethods;
   /** Terminal handler variants that attach metadata and then call `.handler(...)`. */
   handlerMethods?: THandlerMethods;
   /** Optional visibility hook for the normal Bun HTTP route surface. */
   includeProcedureInHttpRoutes?: (
     procedure: BunRPCPluginProcedureInfo<TProcedureMeta>
   ) => boolean;
+  /** Chainable builder methods that only attach metadata. */
+  methods?: TMethods;
+  /** Stable plugin id used in `http.plugins.<name>`. */
+  name: TName;
+  /** Plugin-local options captured when attaching it with `b.use(...)`. */
+  options: TOptions;
   /** Runs during `createHttpRoutes(...)` and can add routes and typed extensions. */
   setup?: (
     ctx: BunRPCPluginSetupContext<TProcedureMeta, TOptions>
-  ) => BunRPCPluginSetupResult<TExtension> | void;
+  ) => BunRPCPluginSetupResult<TExtension> | undefined;
 }
 
 export type AnyBunRPCPlugin = BunRPCPlugin<
@@ -446,12 +474,30 @@ export type PluginName<TPlugin extends AnyBunRPCPlugin> =
     : never;
 
 export type PluginOptions<TPlugin extends AnyBunRPCPlugin> =
-  TPlugin extends BunRPCPlugin<any, infer TOptions, any, any, any, any, any, any>
+  TPlugin extends BunRPCPlugin<
+    any,
+    infer TOptions,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any
+  >
     ? TOptions
     : never;
 
 export type PluginMethods<TPlugin extends AnyBunRPCPlugin> =
-  TPlugin extends BunRPCPlugin<any, any, infer TMethods, any, any, any, any, any>
+  TPlugin extends BunRPCPlugin<
+    any,
+    any,
+    infer TMethods,
+    any,
+    any,
+    any,
+    any,
+    any
+  >
     ? TMethods
     : never;
 
@@ -470,7 +516,16 @@ export type PluginProcedureMeta<TPlugin extends AnyBunRPCPlugin> =
     : never;
 
 export type PluginExtension<TPlugin extends AnyBunRPCPlugin> =
-  TPlugin extends BunRPCPlugin<any, any, any, any, infer TExtension, any, any, any>
+  TPlugin extends BunRPCPlugin<
+    any,
+    any,
+    any,
+    any,
+    infer TExtension,
+    any,
+    any,
+    any
+  >
     ? TExtension
     : never;
 
@@ -503,47 +558,56 @@ export type PluginRequestSource<TPlugin extends AnyBunRPCPlugin> =
     : never;
 
 export type PluginHandlerMethods<TPlugin extends AnyBunRPCPlugin> =
-  TPlugin extends BunRPCPlugin<any, any, any, any, any, any, any, infer THandlerMethods>
+  TPlugin extends BunRPCPlugin<
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    infer THandlerMethods
+  >
     ? THandlerMethods
     : never;
 
 export interface BunRPCPluginProcedureInfo<TMeta = never> {
-  path: string;
   fullPath: string;
-  procedure: AnyProcedure;
   /** Whether this procedure is visible through the regular HTTP/client API. */
   httpExposed: boolean;
   inputSchema?: StandardSchemaV1;
-  outputSchema?: StandardSchemaV1;
   /** Metadata collected for the current plugin from procedure methods. */
   meta?: TMeta;
+  outputSchema?: StandardSchemaV1;
+  path: string;
+  procedure: AnyProcedure;
 }
 
 export interface BunRPCPluginInvokeProcedureOptions {
-  req: BunRequest<string>;
-  server: Server<unknown>;
-  input?: unknown;
-  requestSource?: string;
   context?: Record<string, unknown>;
+  input?: unknown;
+  req: BunRequest<string>;
+  requestSource?: string;
+  server: Server<unknown>;
 }
 
-export type BunRPCPluginInvokeProcedureResult = RpcResult<unknown>;
+export type BunRPCPluginInvokeProcedureResult = RpcResult<unknown> | Response;
 
 export interface BunRPCPluginSetupContext<
   TProcedureMeta = never,
   TOptions = undefined,
   TRouter extends Router = Router,
 > {
-  router: TRouter;
-  prefix: string;
-  /** All procedures in the router, including plugin-hidden ones like MCP-only routes. */
-  procedures: Array<BunRPCPluginProcedureInfo<TProcedureMeta>>;
-  options: TOptions;
   /** Execute an existing procedure through bunrpc validation, middleware, and handler flow. */
   invokeProcedure: (
     procedure: BunRPCPluginProcedureInfo<TProcedureMeta>,
     options: BunRPCPluginInvokeProcedureOptions
   ) => Promise<BunRPCPluginInvokeProcedureResult>;
+  options: TOptions;
+  prefix: string;
+  /** All procedures in the router, including plugin-hidden ones like MCP-only routes. */
+  procedures: BunRPCPluginProcedureInfo<TProcedureMeta>[];
+  router: TRouter;
 }
 
 export interface BunRPCPluginSetupResult<TExtension = undefined> {
@@ -555,8 +619,8 @@ export interface ProcedurePluginEntry<
   TName extends string = string,
   TMeta extends object = Record<string, unknown>,
 > {
-  name: TName;
   meta: TMeta;
+  name: TName;
 }
 
 // ============================================================================
@@ -581,8 +645,8 @@ export interface BunRPCRoutes<
   TPlugins extends Record<string, unknown> = Record<string, never>,
 > {
   _router: T;
-  routes: Record<string, BunRPCRouteHandler>;
   plugins: TPlugins;
+  routes: Record<string, BunRPCRouteHandler>;
 }
 
 // ============================================================================
@@ -610,23 +674,20 @@ type ProcedureSystemErrorsByInput<TInput> =
   | ProcedureServerSystemErrorsByInput<TInput>
   | ProcedureClientSystemErrors;
 
-type ProcedureClientErrorByParts<
-  TInput,
-  TAppError,
-> = Extract<TAppError, AppRpcError> | ProcedureSystemErrorsByInput<TInput>;
+type ProcedureClientErrorByParts<TInput, TAppError> =
+  | Extract<TAppError, AppRpcError>
+  | ProcedureSystemErrorsByInput<TInput>;
 
-type ProcedureResultByParts<
-  TInput,
+type ProcedureResultByParts<TInput, TOutput, TAppError> = RpcResult<
   TOutput,
-  TAppError,
-> = RpcResult<TOutput, ProcedureClientErrorByParts<TInput, TAppError>>;
+  ProcedureClientErrorByParts<TInput, TAppError>
+>;
 
-type PublicClientKey<T, TKey extends keyof T> =
-  T[TKey] extends AnyProcedure
-    ? ProcedureHttpExposed<T[TKey]> extends false
-      ? never
-      : TKey
-    : TKey;
+type PublicClientKey<T, TKey extends keyof T> = T[TKey] extends AnyProcedure
+  ? ProcedureHttpExposed<T[TKey]> extends false
+    ? never
+    : TKey
+  : TKey;
 
 export type ProcedureSystemErrors<P> = ProcedureSystemErrorsByInput<
   ProcedureInput<P>
@@ -637,7 +698,10 @@ export type ProcedureClientError<P> = ProcedureClientErrorByParts<
   ProcedureAppError<P>
 >;
 
-export type ProcedureResult<P> = RpcResult<ProcedureOutput<P>, ProcedureClientError<P>>;
+export type ProcedureResult<P> = RpcResult<
+  ProcedureOutput<P>,
+  ProcedureClientError<P>
+>;
 
 export type InferClient<T> = {
   [K in keyof T as PublicClientKey<T, K>]: T[K] extends {

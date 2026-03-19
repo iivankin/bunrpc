@@ -1,5 +1,8 @@
 import type { StandardSchemaV1 } from "@bunrpc/core";
-import type { JSONSchemaObject, StandardSchemaWithJSONSchema } from "./mcp-types";
+import type {
+  JSONSchemaObject,
+  StandardSchemaWithJSONSchema,
+} from "./mcp-types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,8 +41,8 @@ function extractJSONSchema(
   const schemaWithJSONSchema = schema as StandardSchemaWithJSONSchema;
   const standardJSONSchema =
     mode === "output"
-      ? schemaWithJSONSchema["~standard"].jsonSchema?.output?.() ??
-        schemaWithJSONSchema["~standard"].jsonSchema?.input?.()
+      ? (schemaWithJSONSchema["~standard"].jsonSchema?.output?.() ??
+        schemaWithJSONSchema["~standard"].jsonSchema?.input?.())
       : schemaWithJSONSchema["~standard"].jsonSchema?.input?.();
 
   if (standardJSONSchema !== undefined) {

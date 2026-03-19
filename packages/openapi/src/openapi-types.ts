@@ -13,6 +13,18 @@ export interface OpenAPIReferenceObject {
 }
 
 export interface OpenAPISchemaObject {
+  additionalProperties?: boolean | OpenAPISchemaObject | OpenAPIReferenceObject;
+  allOf?: Array<OpenAPISchemaObject | OpenAPIReferenceObject>;
+  anyOf?: Array<OpenAPISchemaObject | OpenAPIReferenceObject>;
+  description?: string;
+  enum?: unknown[];
+  example?: unknown;
+  format?: string;
+  items?: OpenAPISchemaObject | OpenAPIReferenceObject;
+  nullable?: boolean;
+  oneOf?: Array<OpenAPISchemaObject | OpenAPIReferenceObject>;
+  properties?: Record<string, OpenAPISchemaObject | OpenAPIReferenceObject>;
+  required?: string[];
   type?:
     | "string"
     | "number"
@@ -21,37 +33,22 @@ export interface OpenAPISchemaObject {
     | "array"
     | "object"
     | "null";
-  format?: string;
-  description?: string;
-  enum?: unknown[];
-  items?: OpenAPISchemaObject | OpenAPIReferenceObject;
-  properties?: Record<string, OpenAPISchemaObject | OpenAPIReferenceObject>;
-  required?: string[];
-  additionalProperties?:
-    | boolean
-    | OpenAPISchemaObject
-    | OpenAPIReferenceObject;
-  nullable?: boolean;
-  example?: unknown;
-  oneOf?: Array<OpenAPISchemaObject | OpenAPIReferenceObject>;
-  anyOf?: Array<OpenAPISchemaObject | OpenAPIReferenceObject>;
-  allOf?: Array<OpenAPISchemaObject | OpenAPIReferenceObject>;
 }
 
 export interface OpenAPIMediaTypeObject {
-  schema?: OpenAPISchemaObject | OpenAPIReferenceObject;
   example?: unknown;
+  schema?: OpenAPISchemaObject | OpenAPIReferenceObject;
 }
 
 export interface OpenAPIRequestBodyObject {
+  content: Record<string, OpenAPIMediaTypeObject>;
   description?: string;
   required?: boolean;
-  content: Record<string, OpenAPIMediaTypeObject>;
 }
 
 export interface OpenAPIResponseObject {
-  description: string;
   content?: Record<string, OpenAPIMediaTypeObject>;
+  description: string;
 }
 
 export type OpenAPIResponsesObject = Record<
@@ -60,14 +57,14 @@ export type OpenAPIResponsesObject = Record<
 >;
 
 export interface OpenAPIOperationObject {
-  operationId?: string;
-  summary?: string;
-  description?: string;
-  tags?: string[];
   deprecated?: boolean;
-  security?: OpenAPISecurityRequirementObject[];
+  description?: string;
+  operationId?: string;
   requestBody?: OpenAPIRequestBodyObject | OpenAPIReferenceObject;
   responses: OpenAPIResponsesObject;
+  security?: OpenAPISecurityRequirementObject[];
+  summary?: string;
+  tags?: string[];
 }
 
 export type OpenAPIPathItemObject = Partial<
@@ -75,42 +72,42 @@ export type OpenAPIPathItemObject = Partial<
 >;
 
 export interface OpenAPIInfoObject {
+  description?: string;
+  summary?: string;
   title: string;
   version: string;
-  summary?: string;
-  description?: string;
 }
 
 export interface OpenAPIServerObject {
-  url: string;
   description?: string;
+  url: string;
 }
 
 export interface OpenAPITagObject {
-  name: string;
   description?: string;
+  name: string;
 }
 
 export type OpenAPISecurityRequirementObject = Record<string, string[]>;
 
 export interface OpenAPISecuritySchemeObject {
-  type: "apiKey" | "http" | "mutualTLS" | "oauth2" | "openIdConnect";
-  description?: string;
-  name?: string;
-  in?: "query" | "header" | "cookie";
-  scheme?: string;
   bearerFormat?: string;
+  description?: string;
   flows?: unknown;
+  in?: "query" | "header" | "cookie";
+  name?: string;
   openIdConnectUrl?: string;
+  scheme?: string;
+  type: "apiKey" | "http" | "mutualTLS" | "oauth2" | "openIdConnect";
 }
 
 export interface OpenAPIComponentsObject {
-  schemas?: Record<string, OpenAPISchemaObject | OpenAPIReferenceObject>;
   requestBodies?: Record<
     string,
     OpenAPIRequestBodyObject | OpenAPIReferenceObject
   >;
   responses?: Record<string, OpenAPIResponseObject | OpenAPIReferenceObject>;
+  schemas?: Record<string, OpenAPISchemaObject | OpenAPIReferenceObject>;
   securitySchemes?: Record<
     string,
     OpenAPISecuritySchemeObject | OpenAPIReferenceObject
@@ -118,48 +115,48 @@ export interface OpenAPIComponentsObject {
 }
 
 export interface OpenAPIObject {
-  openapi: "3.1.0";
+  components?: OpenAPIComponentsObject;
   info: OpenAPIInfoObject;
+  openapi: "3.1.0";
+  paths: Record<string, OpenAPIPathItemObject>;
+  security?: OpenAPISecurityRequirementObject[];
   servers?: OpenAPIServerObject[];
   tags?: OpenAPITagObject[];
-  security?: OpenAPISecurityRequirementObject[];
-  components?: OpenAPIComponentsObject;
-  paths: Record<string, OpenAPIPathItemObject>;
 }
 
 export interface SwaggerUIOptions {
-  path?: string;
-  title?: string;
   assetBaseUrl?: string;
-  layout?: "BaseLayout" | "StandaloneLayout";
-  persistAuthorization?: boolean;
-  displayOperationId?: boolean;
-  defaultModelsExpandDepth?: number;
   defaultModelExpandDepth?: number;
+  defaultModelsExpandDepth?: number;
+  displayOperationId?: boolean;
   docExpansion?: "list" | "full" | "none";
   filter?: boolean | string;
+  layout?: "BaseLayout" | "StandaloneLayout";
+  path?: string;
+  persistAuthorization?: boolean;
+  title?: string;
   tryItOutEnabled?: boolean;
 }
 
 export interface OpenAPIProcedureMeta {
+  deprecated?: boolean;
+  description?: string;
   openapi?: boolean;
   operationId?: string;
-  summary?: string;
-  description?: string;
-  tags?: string[];
-  deprecated?: boolean;
-  security?: OpenAPISecurityRequirementObject[];
   requestBody?: OpenAPIRequestBodyObject | OpenAPIReferenceObject;
   responses?: OpenAPIResponsesObject;
+  security?: OpenAPISecurityRequirementObject[];
+  summary?: string;
+  tags?: string[];
 }
 
 export interface OpenAPIPluginOptions {
-  info: OpenAPIInfoObject;
-  documentPath?: string;
-  servers?: OpenAPIServerObject[];
-  tags?: OpenAPITagObject[];
-  security?: OpenAPISecurityRequirementObject[];
   components?: OpenAPIComponentsObject;
   defaultTags?: "firstSegment" | false;
+  documentPath?: string;
+  info: OpenAPIInfoObject;
+  security?: OpenAPISecurityRequirementObject[];
+  servers?: OpenAPIServerObject[];
   swagger?: boolean | SwaggerUIOptions;
+  tags?: OpenAPITagObject[];
 }

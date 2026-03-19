@@ -1,20 +1,20 @@
 import {
-  createSystemError,
   type AppRpcError,
+  createSystemError,
   type RpcErrorUnion,
-  type ValidationErrorDetails,
-  type ValidationIssue,
   type SystemRpcError,
   type SystemRpcErrorCode,
+  type ValidationErrorDetails,
+  type ValidationIssue,
 } from "./types";
 
 interface RpcErrorPayload {
-  source?: unknown;
   code?: unknown;
-  status?: unknown;
-  message?: unknown;
-  error?: unknown;
   details?: unknown;
+  error?: unknown;
+  message?: unknown;
+  source?: unknown;
+  status?: unknown;
 }
 
 const SYSTEM_ERROR_CODES = new Set<SystemRpcErrorCode>([
@@ -31,7 +31,10 @@ function isSystemErrorCode(code: string): code is SystemRpcErrorCode {
   return SYSTEM_ERROR_CODES.has(code as SystemRpcErrorCode);
 }
 
-function resolveMessage(data: RpcErrorPayload, fallbackMessage: string): string {
+function resolveMessage(
+  data: RpcErrorPayload,
+  fallbackMessage: string
+): string {
   if (typeof data.message === "string") {
     return data.message;
   }

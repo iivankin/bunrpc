@@ -2,18 +2,17 @@ import type { BunRequest, Server } from "bun";
 import { BunRpcHttpError } from "./bunrpc-http-error";
 import type { StandardSchemaV1 } from "./standard-schema";
 import {
+  type AnyBunRPCPlugin,
+  type AnyProcedure,
+  type AppRpcError,
+  type BaseContext,
+  type BunRPCRouteHandler,
+  type BunRPCRoutes,
   createAppError,
   createProcedureErrorResult,
   createSystemError,
-  isProcedureErrorResult,
-  type AnyProcedure,
-  type AnyBunRPCPlugin,
-  type AppRpcError,
-  type BaseContext,
-  type BunRPCPlugin,
-  type BunRPCRouteHandler,
-  type BunRPCRoutes,
   type InferSchemaOutput,
+  isProcedureErrorResult,
   type MaybePromise,
   type PluginContextExtensions,
   type PluginHandlerMethods,
@@ -21,14 +20,16 @@ import {
   type PluginProcedureMeta,
   type PluginRequestSource,
   type Procedure,
-  type ProcedureErrorFromResult,
   type ProcedureErrorFactory,
+  type ProcedureErrorFromResult,
   type ProcedureErrorResult,
   type ProcedureHelpers,
-  type ProcedurePluginEntry,
   type ProcedureMiddlewareOptions,
   type ProcedureNextResult,
+  type ProcedureNextResultOrResponse,
   type ProcedureOutputFromResult,
+  type ProcedurePluginEntry,
+  type ProcedureResponseFromResult,
   type Router,
   type RouterPluginExtensions,
   type RpcResult,
@@ -50,16 +51,17 @@ type NormalizeObject<TValue> = TValue extends object
     }
   : Record<string, never>;
 
-type AppPluginContext<TPlugins extends readonly AnyBunRPCPlugin[]> =
-  [TPlugins[number]] extends [never]
-    ? Record<string, never>
-    : UnionToIntersection<
-        TPlugins[number] extends infer TPlugin
-          ? TPlugin extends AnyBunRPCPlugin
-            ? PluginContextExtensions<TPlugin>
-            : never
+type AppPluginContext<TPlugins extends readonly AnyBunRPCPlugin[]> = [
+  TPlugins[number],
+] extends [never]
+  ? Record<string, never>
+  : UnionToIntersection<
+      TPlugins[number] extends infer TPlugin
+        ? TPlugin extends AnyBunRPCPlugin
+          ? PluginContextExtensions<TPlugin>
           : never
-      >;
+        : never
+    >;
 
 type AppPluginRequestSource<TPlugins extends readonly AnyBunRPCPlugin[]> =
   Extract<
@@ -71,21 +73,24 @@ type AppPluginRequestSource<TPlugins extends readonly AnyBunRPCPlugin[]> =
     string
   >;
 
-type AppBaseContext<TPlugins extends readonly AnyBunRPCPlugin[]> =
-  Omit<BaseContext, "requestSource"> &
-    AppPluginContext<TPlugins> & {
-      requestSource: [AppPluginRequestSource<TPlugins>] extends [never]
-        ? "rpc"
-        : "rpc" | AppPluginRequestSource<TPlugins>;
-    };
+type AppBaseContext<TPlugins extends readonly AnyBunRPCPlugin[]> = Omit<
+  BaseContext,
+  "requestSource"
+> &
+  AppPluginContext<TPlugins> & {
+    requestSource: [AppPluginRequestSource<TPlugins>] extends [never]
+      ? "rpc"
+      : "rpc" | AppPluginRequestSource<TPlugins>;
+  };
 
-type ProcedureBuilderPluginMethodsUnion<
-  TPlugin extends AnyBunRPCPlugin,
-> = {
+type ProcedureBuilderPluginMethodsUnion<TPlugin extends AnyBunRPCPlugin> = {
   [TMethodName in Extract<keyof PluginMethods<TPlugin>, string>]: <TSelf>(
     this: TSelf,
     ...args: Parameters<
-      Extract<NonNullable<PluginMethods<TPlugin>[TMethodName]>, (...args: any[]) => any>
+      Extract<
+        NonNullable<PluginMethods<TPlugin>[TMethodName]>,
+        (...args: any[]) => any
+      >
     >
   ) => TSelf;
 };
@@ -108,7 +113,9 @@ type ProcedureBuilderHandlerMethodsUnion<
     undefined,
     ProcedureResolvedOutput<TOutputSchema, TResult>,
     TError | ProcedureErrorFromResult<TResult>,
-    PluginHandlerMethods<TPlugin>[TMethodName] extends { __httpExposed?: infer THttpExposed }
+    PluginHandlerMethods<TPlugin>[TMethodName] extends {
+      __httpExposed?: infer THttpExposed;
+    }
       ? Extract<THttpExposed, boolean> extends never
         ? true
         : Extract<THttpExposed, boolean>
@@ -119,14 +126,17 @@ type ProcedureBuilderHandlerMethodsUnion<
 type ProcedureHandlerResultConstraint<
   TOutputSchema extends StandardSchemaV1 | undefined,
 > = TOutputSchema extends StandardSchemaV1
-  ? InferSchemaOutput<TOutputSchema> | ProcedureErrorResult<AppRpcError>
+  ?
+      | InferSchemaOutput<TOutputSchema>
+      | ProcedureErrorResult<AppRpcError>
+      | Response
   : unknown;
 
 type ProcedureResolvedOutput<
   TOutputSchema extends StandardSchemaV1 | undefined,
   TResult,
 > = TOutputSchema extends StandardSchemaV1
-  ? InferSchemaOutput<TOutputSchema>
+  ? InferSchemaOutput<TOutputSchema> | ProcedureResponseFromResult<TResult>
   : ProcedureOutputFromResult<TResult>;
 
 interface ProcedureBuilderBase<
@@ -137,24 +147,17 @@ interface ProcedureBuilderBase<
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
 > {
   /**
-   * Add middleware that extends context
+   * Define handler without input
    */
-  use<
-    TContextExtension extends Record<string, unknown> = Record<string, never>,
-    TNextError extends AppRpcError = never,
-  >(
+  handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
     fn: (
-      opts: ProcedureMiddlewareOptions<TContext, TBaseContext>
-    ) => MaybePromise<
-      | ProcedureNextResult<unknown, never, TContextExtension>
-      | ProcedureErrorResult<TNextError>
-    >
-  ): ProcedureBuilder<
-    TContext & NormalizeMiddlewareContext<TContextExtension>,
-    TBaseContext,
-    TPlugins,
-    TError | TNextError,
-    TOutputSchema
+      ctx: TContext & TBaseContext & ProcedureHelpers & { input: undefined }
+    ) => MaybePromise<TResult>
+  ): Procedure<
+    TContext & TBaseContext,
+    undefined,
+    ProcedureResolvedOutput<TOutputSchema, TResult>,
+    TError | ProcedureErrorFromResult<TResult>
   >;
 
   /**
@@ -177,19 +180,25 @@ interface ProcedureBuilderBase<
   output<TSchema extends StandardSchemaV1>(
     schema: TSchema
   ): ProcedureBuilder<TContext, TBaseContext, TPlugins, TError, TSchema>;
-
   /**
-   * Define handler without input
+   * Add middleware that extends context
    */
-  handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
+  use<
+    TContextExtension extends Record<string, unknown> = Record<string, never>,
+    TNextError extends AppRpcError = never,
+  >(
     fn: (
-      ctx: TContext & TBaseContext & ProcedureHelpers & { input: undefined }
-    ) => MaybePromise<TResult>
-  ): Procedure<
-    TContext & TBaseContext,
-    undefined,
-    ProcedureResolvedOutput<TOutputSchema, TResult>,
-    TError | ProcedureErrorFromResult<TResult>
+      opts: ProcedureMiddlewareOptions<TContext, TBaseContext>
+    ) => MaybePromise<
+      | ProcedureNextResultOrResponse<unknown, never, TContextExtension>
+      | ProcedureErrorResult<TNextError>
+    >
+  ): ProcedureBuilder<
+    TContext & NormalizeMiddlewareContext<TContextExtension>,
+    TBaseContext,
+    TPlugins,
+    TError | TNextError,
+    TOutputSchema
   >;
 }
 
@@ -202,13 +211,6 @@ interface ProcedureBuilderWithInputBase<
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
 > {
   /**
-   * Define output schema for successful responses
-   */
-  output<TSchema extends StandardSchemaV1>(
-    schema: TSchema
-  ): ProcedureBuilderWithInput<TContext, TBaseContext, TPlugins, TInput, TError, TSchema>;
-
-  /**
    * Define handler with input
    */
   handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
@@ -220,6 +222,19 @@ interface ProcedureBuilderWithInputBase<
     TInput,
     ProcedureResolvedOutput<TOutputSchema, TResult>,
     TError | ProcedureErrorFromResult<TResult>
+  >;
+  /**
+   * Define output schema for successful responses
+   */
+  output<TSchema extends StandardSchemaV1>(
+    schema: TSchema
+  ): ProcedureBuilderWithInput<
+    TContext,
+    TBaseContext,
+    TPlugins,
+    TInput,
+    TError,
+    TSchema
   >;
 }
 
@@ -286,7 +301,9 @@ type ProcedureBuilderWithInputHandlerMethodsUnion<
     TInput,
     ProcedureResolvedOutput<TOutputSchema, TResult>,
     TError | ProcedureErrorFromResult<TResult>,
-    PluginHandlerMethods<TPlugin>[TMethodName] extends { __httpExposed?: infer THttpExposed }
+    PluginHandlerMethods<TPlugin>[TMethodName] extends {
+      __httpExposed?: infer THttpExposed;
+    }
       ? Extract<THttpExposed, boolean> extends never
         ? true
         : Extract<THttpExposed, boolean>
@@ -346,7 +363,7 @@ type ProcedureBuilderWithInput<
 type RuntimeMiddleware = (
   opts: ProcedureMiddlewareOptions<Record<string, unknown>, BaseContext>
 ) => MaybePromise<
-  | ProcedureNextResult<unknown, never, Record<string, unknown>>
+  | ProcedureNextResultOrResponse<unknown, never, Record<string, unknown>>
   | ProcedureErrorResult<AppRpcError>
 >;
 
@@ -367,11 +384,14 @@ function isSystemRpcErrorCode(value: string): value is SystemRpcErrorCode {
 }
 
 function createProcedureHelpers(): ProcedureHelpers {
-  const error: ProcedureErrorFactory = (input) => createProcedureErrorResult(input);
+  const error: ProcedureErrorFactory = (input) =>
+    createProcedureErrorResult(input);
   return { error };
 }
 
-function isProcedureMetaPatch(value: unknown): value is Record<string, unknown> {
+function isProcedureMetaPatch(
+  value: unknown
+): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -383,8 +403,7 @@ function resolveHandlerMethodPatch(patch: Record<string, unknown>): {
 
   return {
     metaPatch,
-    httpExposed:
-      typeof __httpExposed === "boolean" ? __httpExposed : true,
+    httpExposed: typeof __httpExposed === "boolean" ? __httpExposed : true,
   };
 }
 
@@ -395,7 +414,10 @@ const RESERVED_PROCEDURE_METHOD_NAMES = new Set([
   "handler",
 ]);
 
-const procedurePluginMetaStore = new WeakMap<AnyProcedure, Map<string, unknown>>();
+const procedurePluginMetaStore = new WeakMap<
+  AnyProcedure,
+  Map<string, unknown>
+>();
 
 function assertPluginCompatibility(
   plugins: readonly AnyBunRPCPlugin[],
@@ -538,7 +560,9 @@ function applyProcedurePluginMethods<TBuilder extends Record<string, unknown>>(
       };
     }
 
-    for (const [methodName, patch] of Object.entries(plugin.handlerMethods ?? {})) {
+    for (const [methodName, patch] of Object.entries(
+      plugin.handlerMethods ?? {}
+    )) {
       if (!isProcedureMetaPatch(patch)) {
         throw new Error(
           `Procedure plugin handler method "${plugin.name}.${methodName}" must be configured with an object metadata patch`
@@ -581,7 +605,7 @@ function createProcedureBuilder<
       value: (
         opts: ProcedureMiddlewareOptions<TContext, TBaseContext>
       ) => MaybePromise<
-        | ProcedureNextResult<unknown, never, TContextExtension>
+        | ProcedureNextResultOrResponse<unknown, never, TContextExtension>
         | ProcedureErrorResult<TNextError>
       >
     ): unknown {
@@ -628,15 +652,14 @@ function createProcedureBuilder<
             TPlugins,
             TError,
             TNextOutputSchema
-          >(
-            plugins,
-            middlewares,
-            pluginEntries,
-            nextOutputSchema
-          ).input(schema);
+          >(plugins, middlewares, pluginEntries, nextOutputSchema).input(
+            schema
+          );
         },
 
-        handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
+        handler<
+          TResult extends ProcedureHandlerResultConstraint<TOutputSchema>,
+        >(
           fn: (
             ctx: TContext &
               TBaseContext &
@@ -663,7 +686,7 @@ function createProcedureBuilder<
               InferSchemaOutput<TSchema>,
               ProcedureResolvedOutput<TOutputSchema, TResult>,
               TError | ProcedureErrorFromResult<TResult>
-          >["handler"],
+            >["handler"],
             _ctx: {} as TContext & TBaseContext,
             _input: {} as InferSchemaOutput<TSchema>,
             _output: {} as ProcedureResolvedOutput<TOutputSchema, TResult>,
@@ -680,7 +703,13 @@ function createProcedureBuilder<
         plugins,
         inputBuilder,
         (pluginName, patch) =>
-          createProcedureBuilder<TContext, TBaseContext, TPlugins, TError, TOutputSchema>(
+          createProcedureBuilder<
+            TContext,
+            TBaseContext,
+            TPlugins,
+            TError,
+            TOutputSchema
+          >(
             plugins,
             middlewares,
             mergeProcedurePluginMeta(pluginEntries, pluginName, patch),
@@ -717,19 +746,20 @@ function createProcedureBuilder<
 
     output<TNextOutputSchema extends StandardSchemaV1>(
       nextOutputSchema: TNextOutputSchema
-    ): ProcedureBuilder<TContext, TBaseContext, TPlugins, TError, TNextOutputSchema> {
+    ): ProcedureBuilder<
+      TContext,
+      TBaseContext,
+      TPlugins,
+      TError,
+      TNextOutputSchema
+    > {
       return createProcedureBuilder<
         TContext,
         TBaseContext,
         TPlugins,
         TError,
         TNextOutputSchema
-      >(
-        plugins,
-        middlewares,
-        pluginEntries,
-        nextOutputSchema
-      );
+      >(plugins, middlewares, pluginEntries, nextOutputSchema);
     },
 
     handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
@@ -773,7 +803,13 @@ function createProcedureBuilder<
     plugins,
     builder,
     (pluginName, patch) =>
-      createProcedureBuilder<TContext, TBaseContext, TPlugins, TError, TOutputSchema>(
+      createProcedureBuilder<
+        TContext,
+        TBaseContext,
+        TPlugins,
+        TError,
+        TOutputSchema
+      >(
         plugins,
         middlewares,
         mergeProcedurePluginMeta(pluginEntries, pluginName, patch),
@@ -796,7 +832,13 @@ function createProcedureBuilder<
       procedure._httpExposed = httpExposed as typeof procedure._httpExposed;
       return procedure;
     }
-  ) as unknown as ProcedureBuilder<TContext, TBaseContext, TPlugins, TError, TOutputSchema>;
+  ) as unknown as ProcedureBuilder<
+    TContext,
+    TBaseContext,
+    TPlugins,
+    TError,
+    TOutputSchema
+  >;
 }
 
 // ============================================================================
@@ -848,13 +890,9 @@ function assertRouterCompatibility(
   }
 }
 
-function createRouterFactory<TPlugins extends readonly AnyBunRPCPlugin[]>(
-  metadata: {
-    appId: symbol;
-    options: InitBunRpcOptions;
-    plugins: TPlugins;
-  }
-) {
+function createRouterFactory<
+  TPlugins extends readonly AnyBunRPCPlugin[],
+>(metadata: { appId: symbol; options: InitBunRpcOptions; plugins: TPlugins }) {
   return function router<TRouter extends Router>(procedures: TRouter): TRouter {
     assertRouterCompatibility(procedures, metadata.appId);
     routerRuntimeMetadataStore.set(procedures, metadata);
@@ -863,7 +901,6 @@ function createRouterFactory<TPlugins extends readonly AnyBunRPCPlugin[]>(
 }
 
 export interface InitBunRpcOptions {
-  prefix?: string;
   formatInternalServerError?: (
     error: unknown,
     event: BunRPCRouteErrorEvent
@@ -871,14 +908,15 @@ export interface InitBunRpcOptions {
     message?: string;
     details?: unknown;
   };
+  prefix?: string;
 }
 
 export interface BunRPCApp<
   TPlugins extends readonly AnyBunRPCPlugin[] = readonly [],
 > {
-  use<TPlugin extends AnyBunRPCPlugin>(
-    plugin: TPlugin
-  ): BunRPCApp<[...TPlugins, TPlugin]>;
+  createHttpRoutes: <TRouter extends Router>(
+    router: TRouter
+  ) => BunRPCRoutes<TRouter, RouterPluginExtensions<TPlugins>>;
   publicProcedure: ProcedureBuilder<
     Record<string, never>,
     AppBaseContext<TPlugins>,
@@ -886,9 +924,9 @@ export interface BunRPCApp<
     never
   >;
   router: <TRouter extends Router>(procedures: TRouter) => TRouter;
-  createHttpRoutes: <TRouter extends Router>(
-    router: TRouter
-  ) => BunRPCRoutes<TRouter, RouterPluginExtensions<TPlugins>>;
+  use<TPlugin extends AnyBunRPCPlugin>(
+    plugin: TPlugin
+  ): BunRPCApp<[...TPlugins, TPlugin]>;
 }
 
 export function initBunRpc<
@@ -974,10 +1012,8 @@ function registerRoute(
     throw new Error(`Route "${path}" is already registered (${source})`);
   }
 
-  routes[path] = async (
-    req: BunRequest<string>,
-    server: Server<unknown>
-  ) => Promise.resolve(handler(req, server));
+  routes[path] = async (req: BunRequest<string>, server: Server<unknown>) =>
+    Promise.resolve(handler(req, server));
 }
 
 function formatIssuePath(
@@ -999,10 +1035,7 @@ function formatIssuePath(
 }
 
 interface ExecuteProcedureOptions {
-  procedure: AnyProcedure;
-  fullPath: string;
-  req: BunRequest<string>;
-  server: Server<unknown>;
+  context?: Record<string, unknown>;
   formatInternalServerError?: (
     error: unknown,
     event: BunRPCRouteErrorEvent
@@ -1010,9 +1043,18 @@ interface ExecuteProcedureOptions {
     message?: string;
     details?: unknown;
   };
+  fullPath: string;
   inputOverride?: ProcedureInputOverride;
+  procedure: AnyProcedure;
+  req: BunRequest<string>;
   requestSource?: string;
-  context?: Record<string, unknown>;
+  server: Server<unknown>;
+}
+
+type ExecuteProcedureResult = RpcResult<unknown> | Response;
+
+function isRawResponse(value: unknown): value is Response {
+  return value instanceof Response;
 }
 
 async function executeProcedure({
@@ -1024,7 +1066,7 @@ async function executeProcedure({
   inputOverride = NO_INPUT_OVERRIDE,
   requestSource = "rpc",
   context,
-}: ExecuteProcedureOptions): Promise<RpcResult<unknown>> {
+}: ExecuteProcedureOptions): Promise<ExecuteProcedureResult> {
   const start = Date.now();
   const url = new URL(req.url);
 
@@ -1047,14 +1089,12 @@ async function executeProcedure({
     const execute = async (
       index: number,
       ctx: BaseContext & ProcedureHelpers & Record<string, unknown>
-    ): Promise<ProcedureNextResult> => {
+    ): Promise<ProcedureNextResultOrResponse> => {
       if (index >= procedure.middlewares.length) {
         let input: unknown;
         if (procedure.inputSchema) {
           let rawBody: unknown;
-          if (inputOverride !== NO_INPUT_OVERRIDE) {
-            rawBody = inputOverride;
-          } else {
+          if (inputOverride === NO_INPUT_OVERRIDE) {
             try {
               rawBody = await req.json();
             } catch {
@@ -1062,24 +1102,37 @@ async function executeProcedure({
                 code: "INVALID_JSON",
               });
             }
+          } else {
+            rawBody = inputOverride;
           }
 
-          const validation = await procedure.inputSchema["~standard"].validate(
-            rawBody
-          );
+          const validation =
+            await procedure.inputSchema["~standard"].validate(rawBody);
           if (validation.issues) {
             const issues = validation.issues.map((issue) => ({
               path: formatIssuePath(issue.path),
               message: issue.message,
             }));
-            throw new BunRpcHttpError(400, "Validation failed", { issues }, {
-              code: "VALIDATION_ERROR",
-            });
+            throw new BunRpcHttpError(
+              400,
+              "Validation failed",
+              { issues },
+              {
+                code: "VALIDATION_ERROR",
+              }
+            );
           }
           input = validation.value;
         }
 
-        const handlerResult = await procedure.handler({ ...ctx, input } as never);
+        const handlerResult = await procedure.handler({
+          ...ctx,
+          input,
+        } as never);
+        if (isRawResponse(handlerResult)) {
+          return handlerResult;
+        }
+
         if (isProcedureErrorResult(handlerResult)) {
           return { ok: false, error: handlerResult.error };
         }
@@ -1103,7 +1156,7 @@ async function executeProcedure({
         ...ctx,
         path: fullPath,
         type: "rpc",
-        next: async <TContextExtension extends Record<string, unknown>>(
+        next: <TContextExtension extends Record<string, unknown>>(
           contextExtension?: TContextExtension
         ) => {
           if (nextCalled) {
@@ -1124,14 +1177,16 @@ async function executeProcedure({
           return execute(index + 1, {
             ...ctx,
             ...extension,
-          }) as Promise<
-            ProcedureNextResult<unknown, never, TContextExtension>
-          >;
+          }) as Promise<ProcedureNextResult<unknown, never, TContextExtension>>;
         },
       });
 
       if (isProcedureErrorResult(middlewareResult)) {
         return { ok: false, error: middlewareResult.error };
+      }
+
+      if (isRawResponse(middlewareResult)) {
+        return middlewareResult;
       }
 
       if (!nextCalled) {
@@ -1156,7 +1211,7 @@ async function executeProcedure({
         );
       }
 
-      return middlewareResult as ProcedureNextResult;
+      return middlewareResult as ProcedureNextResultOrResponse;
     };
 
     return await execute(0, baseCtx);
@@ -1207,12 +1262,12 @@ async function executeProcedure({
  * Paths are generated from router structure: chat.create -> /api/chat/create
  */
 export interface BunRPCRouteErrorEvent {
-  req: BunRequest<string>;
-  method: string;
-  path: string;
-  status: number;
   duration: number;
   error?: string;
+  method: string;
+  path: string;
+  req: BunRequest<string>;
+  status: number;
 }
 
 function buildHttpRoutes<
@@ -1259,33 +1314,39 @@ function buildHttpRoutes<
       continue;
     }
 
-    registerRoute(routes, procedureInfo.fullPath, async (
-      req: BunRequest<string>,
-      server: Server<unknown>
-    ) => {
-      if (req.method !== "POST") {
-        const error = createSystemError(
-          "METHOD_NOT_ALLOWED",
-          405,
-          "Method not allowed, use POST"
-        );
-        return Response.json(error, { status: error.status });
-      }
+    registerRoute(
+      routes,
+      procedureInfo.fullPath,
+      async (req: BunRequest<string>, server: Server<unknown>) => {
+        if (req.method !== "POST") {
+          const error = createSystemError(
+            "METHOD_NOT_ALLOWED",
+            405,
+            "Method not allowed, use POST"
+          );
+          return Response.json(error, { status: error.status });
+        }
 
-      const result = await executeProcedure({
-        procedure: procedureInfo.procedure,
-        fullPath: procedureInfo.fullPath,
-        req,
-        server,
-        formatInternalServerError,
-      });
+        const result = await executeProcedure({
+          procedure: procedureInfo.procedure,
+          fullPath: procedureInfo.fullPath,
+          req,
+          server,
+          formatInternalServerError,
+        });
 
-      if (!result.ok) {
-        return Response.json(result.error, { status: result.error.status });
-      }
+        if (isRawResponse(result)) {
+          return result;
+        }
 
-      return Response.json(result.data);
-    }, `rpc procedure ${procedureInfo.fullPath}`);
+        if (!result.ok) {
+          return Response.json(result.error, { status: result.error.status });
+        }
+
+        return Response.json(result.data);
+      },
+      `rpc procedure ${procedureInfo.fullPath}`
+    );
   }
 
   const pluginExtensions = {} as RouterPluginExtensions<TPlugins>;
@@ -1314,18 +1375,12 @@ function buildHttpRoutes<
 
     if (setupResult?.routes) {
       for (const [path, handler] of Object.entries(setupResult.routes)) {
-        registerRoute(
-          routes,
-          path,
-          handler,
-          `plugin ${plugin.name}`
-        );
+        registerRoute(routes, path, handler, `plugin ${plugin.name}`);
       }
     }
 
-    (
-      pluginExtensions as unknown as Record<string, unknown>
-    )[plugin.name] = setupResult?.extension;
+    (pluginExtensions as unknown as Record<string, unknown>)[plugin.name] =
+      setupResult?.extension;
   }
 
   return {

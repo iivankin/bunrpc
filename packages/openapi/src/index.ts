@@ -13,8 +13,7 @@ import type {
 
 const DEFAULT_DOCUMENT_PATH = "/openapi.json";
 const DEFAULT_SWAGGER_PATH = "/docs";
-const DEFAULT_SWAGGER_ASSET_BASE =
-  "https://unpkg.com/swagger-ui-dist@5.11.0";
+const DEFAULT_SWAGGER_ASSET_BASE = "https://unpkg.com/swagger-ui-dist@5.11.0";
 
 interface StandardSchemaWithJSONSchema extends StandardSchemaV1 {
   "~standard": StandardSchemaV1["~standard"] & {
@@ -29,27 +28,27 @@ interface StandardSchemaWithJSONSchema extends StandardSchemaV1 {
 interface ResolvedSwaggerOptions extends Required<SwaggerUIOptions> {}
 
 export interface OpenAPIProcedureMethods {
+  deprecated: (
+    deprecated?: boolean
+  ) => Pick<OpenAPIProcedureMeta, "deprecated">;
+  description: (
+    description: string
+  ) => Pick<OpenAPIProcedureMeta, "description">;
   openapi: (enabled?: boolean) => Pick<OpenAPIProcedureMeta, "openapi">;
   operationId: (
     operationId: string
   ) => Pick<OpenAPIProcedureMeta, "operationId">;
-  summary: (summary: string) => Pick<OpenAPIProcedureMeta, "summary">;
-  description: (
-    description: string
-  ) => Pick<OpenAPIProcedureMeta, "description">;
-  tags: (...tags: string[]) => Pick<OpenAPIProcedureMeta, "tags">;
-  deprecated: (
-    deprecated?: boolean
-  ) => Pick<OpenAPIProcedureMeta, "deprecated">;
-  security: (
-    ...security: OpenAPISecurityRequirementObject[]
-  ) => Pick<OpenAPIProcedureMeta, "security">;
   requestBody: (
     requestBody: OpenAPIRequestBodyObject | OpenAPIReferenceObject
   ) => Pick<OpenAPIProcedureMeta, "requestBody">;
   responses: (
     responses: OpenAPIResponsesObject
   ) => Pick<OpenAPIProcedureMeta, "responses">;
+  security: (
+    ...security: OpenAPISecurityRequirementObject[]
+  ) => Pick<OpenAPIProcedureMeta, "security">;
+  summary: (summary: string) => Pick<OpenAPIProcedureMeta, "summary">;
+  tags: (...tags: string[]) => Pick<OpenAPIProcedureMeta, "tags">;
 }
 
 export type {
@@ -125,8 +124,8 @@ function extractJSONSchema(
   const schemaWithJSONSchema = schema as StandardSchemaWithJSONSchema;
   const standardJSONSchema =
     mode === "output"
-      ? schemaWithJSONSchema["~standard"].jsonSchema?.output?.() ??
-        schemaWithJSONSchema["~standard"].jsonSchema?.input?.()
+      ? (schemaWithJSONSchema["~standard"].jsonSchema?.output?.() ??
+        schemaWithJSONSchema["~standard"].jsonSchema?.input?.())
       : schemaWithJSONSchema["~standard"].jsonSchema?.input?.();
 
   if (standardJSONSchema !== undefined) {
@@ -329,7 +328,10 @@ function createOutputSchemaRegistry(
 
     extractedOutputSchemasByPath.set(procedure.fullPath, outputSchema);
 
-    const candidates: Array<{ title: string; schema: Record<string, unknown> }> = [];
+    const candidates: Array<{
+      title: string;
+      schema: Record<string, unknown>;
+    }> = [];
     collectNamedSchemas(outputSchema, candidates);
 
     for (const candidate of candidates) {
@@ -423,13 +425,12 @@ function createOperation(
             ...createDefaultRequestBody(),
             content: {
               "application/json": {
-                schema:
-                  isRecord(extractedInputSchema)
-                    ? extractedInputSchema
-                    : {
-                        type: "object",
-                        additionalProperties: true,
-                      },
+                schema: isRecord(extractedInputSchema)
+                  ? extractedInputSchema
+                  : {
+                      type: "object",
+                      additionalProperties: true,
+                    },
               },
             },
           }
@@ -566,7 +567,8 @@ export function openapi(
     },
     setup: ({ options: pluginOptions, procedures }) => {
       const httpProcedures = procedures.filter(
-        (procedure) => procedure.httpExposed && procedure.meta?.openapi !== false
+        (procedure) =>
+          procedure.httpExposed && procedure.meta?.openapi !== false
       );
       const documentPath = pluginOptions.documentPath ?? DEFAULT_DOCUMENT_PATH;
       const outputSchemaRegistry = createOutputSchemaRegistry(

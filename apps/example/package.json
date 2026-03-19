@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "server": "bun run server.ts",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@bunrpc/core": "workspace:*",

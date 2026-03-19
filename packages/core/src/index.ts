@@ -1,12 +1,12 @@
 export type { ClientConfig, RpcError } from "./client";
 export { createClient, createRpcError, isRpcError } from "./client";
-export { createHttpRoutes, initBunRpc } from "./server";
 export type {
   BunRPCApp,
   BunRPCRouteErrorEvent,
   InitBunRpcOptions,
 } from "./server";
-
+export { createHttpRoutes, initBunRpc } from "./server";
+export type { StandardSchemaV1 } from "./standard-schema";
 export type {
   AnyBunRPCPlugin,
   AppRpcError,
@@ -33,6 +33,7 @@ export type {
   PluginProcedureMeta,
   PluginRequestSource,
   ProcedureHttpExposed,
+  ProcedureNextResultOrResponse,
   ProcedurePluginEntry,
   Router,
   RouterPluginExtensions,
@@ -44,4 +45,3 @@ export type {
   ValidationIssue,
 } from "./types";
 export { isAppError, isValidationError } from "./types";
-export type { StandardSchemaV1 } from "./standard-schema";

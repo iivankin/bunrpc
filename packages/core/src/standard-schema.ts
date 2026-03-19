@@ -4,15 +4,16 @@ export interface StandardTypedV1<Input = unknown, Output = Input> {
   readonly "~standard": StandardTypedV1.Props<Input, Output>;
 }
 
+// biome-ignore lint/style/noNamespace: this file mirrors the published Standard Schema typing shape.
 export declare namespace StandardTypedV1 {
   /** The Standard Typed properties interface. */
   export interface Props<Input = unknown, Output = Input> {
-    /** The version number of the standard. */
-    readonly version: 1;
-    /** The vendor name of the schema library. */
-    readonly vendor: string;
     /** Inferred types associated with the schema. */
     readonly types?: Types<Input, Output> | undefined;
+    /** The vendor name of the schema library. */
+    readonly vendor: string;
+    /** The version number of the standard. */
+    readonly version: 1;
   }
 
   /** The Standard Typed types interface. */
@@ -40,6 +41,7 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": StandardSchemaV1.Props<Input, Output>;
 }
 
+// biome-ignore lint/style/noNamespace: this file mirrors the published Standard Schema typing shape.
 export declare namespace StandardSchemaV1 {
   /** The Standard Schema properties interface. */
   export interface Props<Input = unknown, Output = Input>
@@ -56,10 +58,10 @@ export declare namespace StandardSchemaV1 {
 
   /** The result interface if validation succeeds. */
   export interface SuccessResult<Output> {
-    /** The typed output value. */
-    readonly value: Output;
     /** A falsy value for `issues` indicates success. */
     readonly issues?: undefined;
+    /** The typed output value. */
+    readonly value: Output;
   }
 
   export interface Options {
@@ -70,7 +72,7 @@ export declare namespace StandardSchemaV1 {
   /** The result interface if validation fails. */
   export interface FailureResult {
     /** The issues of failed validation. */
-    readonly issues: ReadonlyArray<Issue>;
+    readonly issues: readonly Issue[];
   }
 
   /** The issue interface of the failure output. */

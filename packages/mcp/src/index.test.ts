@@ -1,4 +1,3 @@
-import type { BunRequest } from "bun";
 import { describe, expect, test } from "bun:test";
 import type {
   BunRPCRouteHandler,
@@ -6,13 +5,14 @@ import type {
   StandardSchemaV1,
 } from "@bunrpc/core";
 import { createHttpRoutes, initBunRpc } from "@bunrpc/core";
+import type { BunRequest } from "bun";
 import type { MCPToolOptions } from "./index";
 import { isMcpRequestContext, mcp } from "./index";
 
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
-  T extends B ? 1 : 2
-  ? true
-  : false;
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 type Expect<T extends true> = T;
 
 function createSingleStringFieldSchema<TKey extends string>(
@@ -70,7 +70,10 @@ function createSingleStringFieldSchema<TKey extends string>(
       },
     },
   } as StandardSchemaV1<unknown, Record<TKey, string>> & {
-    "~standard": StandardSchemaV1<unknown, Record<TKey, string>>["~standard"] & {
+    "~standard": StandardSchemaV1<
+      unknown,
+      Record<TKey, string>
+    >["~standard"] & {
       jsonSchema: {
         input: () => unknown;
         output: () => unknown;
@@ -146,7 +149,7 @@ async function callRoute(
     headers?: Record<string, string>;
   } = {}
 ): Promise<Response> {
-  return route(
+  return await route(
     new Request("http://localhost/mcp", {
       method: "POST",
       headers: {
@@ -188,9 +191,16 @@ async function initializeSession(
     { headers }
   );
 
-  expect(initializeResponse.status).toBe(200);
   const sessionId = initializeResponse.headers.get("mcp-session-id");
-  expect(sessionId).toBeTruthy();
+  if (initializeResponse.status !== 200) {
+    throw new Error(
+      `Expected initialize status 200, got ${initializeResponse.status}`
+    );
+  }
+
+  if (!sessionId) {
+    throw new Error("Expected MCP session id in initialize response");
+  }
 
   await callRoute(
     route,
@@ -204,7 +214,7 @@ async function initializeSession(
     }
   );
 
-  return sessionId as string;
+  return sessionId;
 }
 
 describe("@bunrpc/mcp", () => {
@@ -226,8 +236,8 @@ describe("@bunrpc/mcp", () => {
             }
 
             return {
-            userId: value,
-            tenantId: "tenant_1",
+              userId: value,
+              tenantId: "tenant_1",
             };
           },
         },
@@ -242,8 +252,7 @@ describe("@bunrpc/mcp", () => {
 
     const authProcedure = publicProcedure.use((ctx) => {
       if (
-        !isMcpRequestContext(ctx) ||
-        !ctx.mcp.auth ||
+        !(isMcpRequestContext(ctx) && ctx.mcp.auth) ||
         ctx.mcp.auth.type !== "header"
       ) {
         return ctx.error({
@@ -254,10 +263,7 @@ describe("@bunrpc/mcp", () => {
       }
 
       const assertHeaderAuthData: Expect<
-        Equal<
-          typeof ctx.mcp.auth.data,
-          { userId: string; tenantId: string }
-        >
+        Equal<typeof ctx.mcp.auth.data, { userId: string; tenantId: string }>
       > = true;
       expect(assertHeaderAuthData).toBe(true);
 
@@ -403,7 +409,9 @@ describe("@bunrpc/mcp", () => {
       echo: b.router({
         run: b.publicProcedure
           .input(createSingleStringFieldSchema("message"))
-          .output(createObjectSchema<{ message: string }>({ message: "string" }))
+          .output(
+            createObjectSchema<{ message: string }>({ message: "string" })
+          )
           .tool("echo")
           .handler(({ input }) => ({ message: input.message })),
       }),
@@ -485,8 +493,7 @@ describe("@bunrpc/mcp", () => {
           .tool()
           .handler((ctx) => {
             if (
-              !isMcpRequestContext(ctx) ||
-              !ctx.mcp.auth ||
+              !(isMcpRequestContext(ctx) && ctx.mcp.auth) ||
               ctx.mcp.auth.type !== "query"
             ) {
               return ctx.error({

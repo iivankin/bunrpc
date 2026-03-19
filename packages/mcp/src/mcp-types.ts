@@ -1,4 +1,3 @@
-import type { BunRequest } from "bun";
 import type {
   BaseContext,
   BunRPCPluginProcedureInfo,
@@ -12,37 +11,38 @@ import type {
   ToolAnnotations,
   ToolExecution,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { BunRequest } from "bun";
 
 export interface MCPToolIcon {
-  src: string;
   mimeType?: string;
   sizes?: string[];
+  src: string;
   theme?: "light" | "dark";
 }
 
 export interface MCPToolOptions {
-  name?: string;
-  title?: string;
-  description?: string;
+  _meta?: Record<string, unknown>;
   annotations?: ToolAnnotations;
+  description?: string;
   execution?: ToolExecution;
   icons?: MCPToolIcon[];
-  _meta?: Record<string, unknown>;
+  name?: string;
+  title?: string;
 }
 
 export interface MCPProcedureMeta {
-  tool?: MCPToolOptions;
   mcpOnly?: true;
+  tool?: MCPToolOptions;
 }
 
 export interface MCPOAuthAuthOptions {
+  metadata?: Omit<OAuthProtectedResourceMetadata, "resource">;
+  requiredScopes?: string[];
   type: "oauth";
   verifyAccessToken: (
     token: string,
     req: BunRequest<string>
   ) => MaybePromise<AuthInfo | null | undefined>;
-  requiredScopes?: string[];
-  metadata?: Omit<OAuthProtectedResourceMetadata, "resource">;
 }
 
 export interface MCPHeaderAuthOptions<
@@ -88,9 +88,9 @@ export type MCPAuthContext<TAuth extends MCPAuthOptions = MCPAuthOptions> =
           }
         : never;
 
-export type ResolvedMCPAuthContext<
-  TAuth extends MCPAuthOptions | undefined,
-> = [TAuth] extends [undefined]
+export type ResolvedMCPAuthContext<TAuth extends MCPAuthOptions | undefined> = [
+  TAuth,
+] extends [undefined]
   ? never
   : TAuth extends MCPAuthOptions
     ? MCPAuthContext<TAuth>
@@ -99,9 +99,9 @@ export type ResolvedMCPAuthContext<
 export interface MCPHandlerContext<
   TAuth extends MCPAuthOptions | undefined = MCPAuthOptions | undefined,
 > {
+  auth?: ResolvedMCPAuthContext<TAuth>;
   sessionId?: string;
   toolName: string;
-  auth?: ResolvedMCPAuthContext<TAuth>;
 }
 
 export interface MCPServerInfo {
@@ -117,42 +117,42 @@ export interface MCPTransportOptions {
 export interface MCPPluginOptions<
   TAuth extends MCPAuthOptions | undefined = MCPAuthOptions | undefined,
 > {
+  auth?: TAuth;
+  instructions?: string;
   path?: string;
   server?: MCPServerInfo;
-  instructions?: string;
-  auth?: TAuth;
   transport?: MCPTransportOptions;
 }
 
 export interface MCPPluginExtension {
-  path: string;
-  instructions?: string;
-  tools: Array<Pick<Tool, "name" | "title" | "description"> & { path: string }>;
   auth?: {
     type: MCPAuthOptions["type"];
     protectedResourceMetadataPath?: string;
   };
+  instructions?: string;
+  path: string;
+  tools: Array<Pick<Tool, "name" | "title" | "description"> & { path: string }>;
 }
 
 export interface JSONSchemaObject extends Record<string, unknown> {
-  type: "object";
   properties?: Record<string, object>;
   required?: string[];
+  type: "object";
 }
 
 export interface MCPResolvedTool {
-  name: string;
-  title?: string;
-  description?: string;
-  annotations?: ToolAnnotations;
-  execution?: ToolExecution;
-  icons?: MCPToolIcon[];
   _meta?: Record<string, unknown>;
-  path: string;
+  annotations?: ToolAnnotations;
+  description?: string;
+  execution?: ToolExecution;
   fullPath: string;
+  icons?: MCPToolIcon[];
   inputSchema: JSONSchemaObject;
+  name: string;
   outputSchema: JSONSchemaObject;
+  path: string;
   procedureInfo: BunRPCPluginProcedureInfo<MCPProcedureMeta>;
+  title?: string;
 }
 
 export interface StandardSchemaWithJSONSchema extends StandardSchemaV1 {

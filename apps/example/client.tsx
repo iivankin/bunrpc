@@ -1,7 +1,7 @@
-import React, { useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createClient, isAppError } from "@bunrpc/core";
 import { createQueryClient, useRpcUtils } from "@bunrpc/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
 import type { AppRouter } from "./server";
 
 const baseUrl = "http://localhost:3000/api";
@@ -113,12 +113,16 @@ function CreateChat() {
   return (
     <div>
       <input
-        value={title}
         onChange={(event) => setTitle(event.target.value)}
         placeholder="Chat title"
+        value={title}
       />
-      <button onClick={() => mutation.mutate({ title })}>Create via mutation</button>
-      <button onClick={previewSafeResult}>Preview safe result</button>
+      <button onClick={() => mutation.mutate({ title })} type="button">
+        Create via mutation
+      </button>
+      <button onClick={previewSafeResult} type="button">
+        Preview safe result
+      </button>
 
       {mutation.isPending && <p>Creating...</p>}
       {renderMutationError()}

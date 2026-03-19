@@ -1,9 +1,9 @@
 import type {
   BaseContext,
   BunRPCPlugin,
+  BunRPCPluginProcedureInfo,
   BunRPCPluginSetupContext,
   BunRPCRouteHandler,
-  BunRPCPluginProcedureInfo,
   StandardSchemaV1,
 } from "@bunrpc/core";
 import {
@@ -11,13 +11,12 @@ import {
   getOAuthProtectedResourceMetadataPath,
 } from "./auth";
 import { extractObjectJSONSchema } from "./json-schema";
-import { createMCPRouteHandler } from "./runtime";
 import type {
   JSONSchemaObject,
   MCPAuthOptions,
+  MCPHandlerContext,
   MCPHeaderAuthOptions,
   MCPOAuthAuthOptions,
-  MCPHandlerContext,
   MCPPluginExtension,
   MCPPluginOptions,
   MCPProcedureMeta,
@@ -26,6 +25,7 @@ import type {
   MCPResolvedTool,
   MCPToolOptions,
 } from "./mcp-types";
+import { createMCPRouteHandler } from "./runtime";
 
 const DEFAULT_PATH = "/mcp";
 const DEFAULT_SERVER_NAME = "bunrpc-mcp";
@@ -46,12 +46,12 @@ export type {
   MCPAuthOptions,
   MCPHandlerContext,
   MCPHeaderAuthOptions,
+  MCPOAuthAuthOptions,
   MCPPluginExtension,
   MCPPluginOptions,
   MCPProcedureMeta,
   MCPQueryAuthOptions,
   MCPRequestContext,
-  MCPOAuthAuthOptions,
   MCPServerInfo,
   MCPToolIcon,
   MCPToolOptions,
@@ -63,7 +63,9 @@ export function isMcpRequestContext<
   return ctx.requestSource === "mcp" && ctx.mcp !== undefined;
 }
 
-function normalizeToolOptions(options?: string | MCPToolOptions): MCPToolOptions {
+function normalizeToolOptions(
+  options?: string | MCPToolOptions
+): MCPToolOptions {
   if (typeof options === "string") {
     return {
       name: options,
@@ -160,7 +162,7 @@ function resolveTool(
 }
 
 function resolveTools(
-  procedures: Array<BunRPCPluginProcedureInfo<MCPProcedureMeta>>
+  procedures: BunRPCPluginProcedureInfo<MCPProcedureMeta>[]
 ): MCPResolvedTool[] {
   for (const procedure of procedures) {
     if (procedure.meta?.mcpOnly && !procedure.meta.tool) {
@@ -197,9 +199,7 @@ export function mcp(): BunRPCPlugin<
   MCPProcedureHandlerMethods
 >;
 
-export function mcp<
-  THeaderData extends Record<string, unknown>,
->(
+export function mcp<THeaderData extends Record<string, unknown>>(
   options: MCPPluginOptions<MCPHeaderAuthOptions<THeaderData>>
 ): BunRPCPlugin<
   "mcp",
@@ -214,9 +214,7 @@ export function mcp<
   MCPProcedureHandlerMethods
 >;
 
-export function mcp<
-  TQueryData extends Record<string, unknown>,
->(
+export function mcp<TQueryData extends Record<string, unknown>>(
   options: MCPPluginOptions<MCPQueryAuthOptions<TQueryData>>
 ): BunRPCPlugin<
   "mcp",
@@ -301,7 +299,7 @@ export function mcp(
         const protectedResourceMetadataPath =
           getOAuthProtectedResourceMetadataPath(path);
 
-        routes[protectedResourceMetadataPath] = async (req) => {
+        routes[protectedResourceMetadataPath] = (req) => {
           if (req.method !== "GET") {
             return new Response("Method Not Allowed", {
               status: 405,
@@ -329,12 +327,12 @@ export function mcp(
             : {
                 auth: {
                   type: pluginOptions.auth.type,
-                  ...(pluginOptions.auth.type !== "oauth"
-                    ? {}
-                    : {
+                  ...(pluginOptions.auth.type === "oauth"
+                    ? {
                         protectedResourceMetadataPath:
                           getOAuthProtectedResourceMetadataPath(path),
-                      }),
+                      }
+                    : {}),
                 },
               }),
         },

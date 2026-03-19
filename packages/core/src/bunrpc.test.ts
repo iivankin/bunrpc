@@ -1,23 +1,23 @@
-import type { BunRequest } from "bun";
 import { describe, expect, mock, test } from "bun:test";
+import type { BunRequest } from "bun";
 import {
-  createHttpRoutes,
+  type AppRpcError,
+  type BunRPCPlugin,
+  type ClientRequestOptions,
   createClient,
+  createHttpRoutes,
   initBunRpc,
   isAppError,
   isValidationError,
-  type AppRpcError,
-  type BunRPCPlugin,
   type RpcResult,
-  type SystemRpcError,
-  type ClientRequestOptions,
   type StandardSchemaV1,
+  type SystemRpcError,
 } from "./index";
 
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() =>
-  T extends B ? 1 : 2
-  ? true
-  : false;
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 type Expect<T extends true> = T;
 
 function createSingleStringFieldSchema<TKey extends string>(
@@ -79,7 +79,9 @@ function withMockedConsole<T>(
   });
 }
 
-function createOpenApiTestPlugin(options: { documentPath: string }): BunRPCPlugin<
+function createOpenApiTestPlugin(options: {
+  documentPath: string;
+}): BunRPCPlugin<
   "openapi",
   { documentPath: string },
   {
@@ -141,7 +143,9 @@ function createMcpTestPlugin(options: { manifestPath: string }): BunRPCPlugin<
     setup: ({ options: pluginOptions, procedures }) => {
       const tools = procedures
         .filter(
-          (procedure): procedure is typeof procedure & {
+          (
+            procedure
+          ): procedure is typeof procedure & {
             meta: { tool: string };
           } => procedure.meta?.tool !== undefined
         )
@@ -168,7 +172,7 @@ describe("@bunrpc/core", () => {
   test("builds typed procedures and routes through initBunRpc", async () => {
     const b = initBunRpc();
     const outputSchema = createSingleStringFieldSchema("id");
-    const authProcedure = b.publicProcedure.use(async ({ req, error, next }) => {
+    const authProcedure = b.publicProcedure.use(({ req, error, next }) => {
       const authHeader = req.headers.get("authorization");
       if (!authHeader) {
         return error({
@@ -198,7 +202,10 @@ describe("@bunrpc/core", () => {
     type MeParams = Parameters<typeof client.chat.me>;
     const assertClientOutput: Expect<Equal<CreateData, { id: string }>> = true;
     const assertMeParams: Expect<
-      Equal<MeParams, [input?: undefined, requestOptions?: ClientRequestOptions]>
+      Equal<
+        MeParams,
+        [input?: undefined, requestOptions?: ClientRequestOptions]
+      >
     > = true;
 
     expect(assertClientOutput).toBe(true);
@@ -228,7 +235,8 @@ describe("@bunrpc/core", () => {
     );
 
     expect(unauthorizedResponse.status).toBe(401);
-    const unauthorizedPayload = (await unauthorizedResponse.json()) as AppRpcError;
+    const unauthorizedPayload =
+      (await unauthorizedResponse.json()) as AppRpcError;
     expect(
       isAppError({
         ok: false,
@@ -258,7 +266,8 @@ describe("@bunrpc/core", () => {
       }) as BunRequest<string>,
       {} as never
     );
-    const payload = (await response.json()) as SystemRpcError<"VALIDATION_ERROR">;
+    const payload =
+      (await response.json()) as SystemRpcError<"VALIDATION_ERROR">;
 
     expect(response.status).toBe(400);
     expect(
@@ -267,6 +276,48 @@ describe("@bunrpc/core", () => {
         error: payload,
       } satisfies RpcResult<never, SystemRpcError<"VALIDATION_ERROR">>)
     ).toBe(true);
+  });
+
+  test("passes through raw Response objects from handlers for direct HTTP streaming", async () => {
+    const b = initBunRpc();
+    const encoder = new TextEncoder();
+    const appRouter = b.router({
+      events: b.publicProcedure
+        .use(({ next }) => next())
+        .handler(() => {
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode("event: message\ndata: hello\n\n")
+              );
+              controller.close();
+            },
+          });
+
+          return new Response(stream, {
+            status: 202,
+            headers: {
+              "cache-control": "no-cache",
+              "content-type": "text/event-stream; charset=utf-8",
+            },
+          });
+        }),
+    });
+
+    const rpc = b.createHttpRoutes(appRouter);
+    const response = await rpc.routes["/api/events"]!(
+      new Request("http://localhost/api/events", {
+        method: "POST",
+      }) as BunRequest<string>,
+      {} as never
+    );
+
+    expect(response.status).toBe(202);
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("content-type")).toBe(
+      "text/event-stream; charset=utf-8"
+    );
+    expect(await response.text()).toBe("event: message\ndata: hello\n\n");
   });
 
   test("supports app-scoped plugins with typed procedure methods and router extensions", async () => {

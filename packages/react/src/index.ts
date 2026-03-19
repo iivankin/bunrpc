@@ -1,3 +1,22 @@
+import {
+  type ClientConfig,
+  type ClientRequestOptions,
+  createClient,
+  createRpcError,
+  isRpcError,
+  type RpcError,
+} from "@bunrpc/core";
+import {
+  type AnyProcedure,
+  createSystemError,
+  type ProcedureClientError,
+  type ProcedureHttpExposed,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type Router,
+  type RpcErrorUnion,
+  type RpcResult,
+} from "@bunrpc/core/types";
 import type {
   InfiniteData,
   QueryKey,
@@ -14,25 +33,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  type ClientRequestOptions,
-  createClient,
-  createRpcError,
-  isRpcError,
-  type ClientConfig,
-  type RpcError,
-} from "@bunrpc/core";
-import {
-  createSystemError,
-  type AnyProcedure,
-  type ProcedureClientError,
-  type ProcedureHttpExposed,
-  type ProcedureInput,
-  type ProcedureOutput,
-  type Router,
-  type RpcErrorUnion,
-  type RpcResult,
-} from "@bunrpc/core/types";
 
 // ============================================================================
 // Types
@@ -48,10 +48,10 @@ type MutationOptions<TInput, TOutput, TError> = Omit<
   "mutationFn"
 >;
 
-type MutationVariables<TInput> = {
+interface MutationVariables<TInput> {
   input: TInput;
   requestOptions?: ClientRequestOptions;
-};
+}
 
 type InternalMutationResult<TInput, TOutput, TError> = UseMutationResult<
   TOutput,
@@ -67,38 +67,43 @@ type PublicMutationCallOptions<TInput, TOutput, TError> = NonNullable<
   Parameters<UseMutationResult<TOutput, TError, TInput>["mutate"]>[1]
 >;
 
-type MutationCallOptions<TInput, TOutput, TError> =
-  PublicMutationCallOptions<TInput, TOutput, TError> & ClientRequestOptions;
+type MutationCallOptions<TInput, TOutput, TError> = PublicMutationCallOptions<
+  TInput,
+  TOutput,
+  TError
+> &
+  ClientRequestOptions;
 
 type DistributiveOmit<T, TKey extends keyof any> = T extends unknown
   ? Omit<T, TKey>
   : never;
 
-type Override<T, TOverrides> = DistributiveOmit<T, keyof TOverrides> & TOverrides;
+type Override<T, TOverrides> = DistributiveOmit<T, keyof TOverrides> &
+  TOverrides;
 
 type MutationResult<TInput, TOutput, TError> = Override<
   InternalMutationResult<TInput, TOutput, TError>,
   {
-  mutate: TInput extends undefined
-    ? (
-        input?: undefined,
-        options?: MutationCallOptions<TInput, TOutput, TError>
-      ) => void
-    : (
-        input: TInput,
-        options?: MutationCallOptions<TInput, TOutput, TError>
-      ) => void;
-  mutateAsync: TInput extends undefined
-    ? (
-        input?: undefined,
-        options?: MutationCallOptions<TInput, TOutput, TError>
-      ) => Promise<TOutput>
-    : (
-        input: TInput,
-        options?: MutationCallOptions<TInput, TOutput, TError>
-      ) => Promise<TOutput>;
-  variables: TInput | undefined;
-}
+    mutate: TInput extends undefined
+      ? (
+          input?: undefined,
+          options?: MutationCallOptions<TInput, TOutput, TError>
+        ) => void
+      : (
+          input: TInput,
+          options?: MutationCallOptions<TInput, TOutput, TError>
+        ) => void;
+    mutateAsync: TInput extends undefined
+      ? (
+          input?: undefined,
+          options?: MutationCallOptions<TInput, TOutput, TError>
+        ) => Promise<TOutput>
+      : (
+          input: TInput,
+          options?: MutationCallOptions<TInput, TOutput, TError>
+        ) => Promise<TOutput>;
+    variables: TInput | undefined;
+  }
 >;
 
 type InfiniteQueryOptions<TOutput, TError, TPageParam> = Omit<
@@ -127,31 +132,33 @@ type CursorPageParam<TInput> = TInput extends { cursor?: infer TCursor }
   ? TCursor | undefined
   : never;
 
-type InfiniteQueryHook<
-  TInput,
-  TOutput,
-  TErrorPayload extends RpcErrorUnion,
-> = TInput extends Record<string, unknown>
-  ? "cursor" extends keyof TInput
-    ? (
-        input: Omit<TInput, "cursor">,
-        options: InfiniteQueryOptions<
-          TOutput,
-          RpcError<TErrorPayload>,
-          CursorPageParam<TInput>
+type InfiniteQueryHook<TInput, TOutput, TErrorPayload extends RpcErrorUnion> =
+  TInput extends Record<string, unknown>
+    ? "cursor" extends keyof TInput
+      ? (
+          input: Omit<TInput, "cursor">,
+          options: InfiniteQueryOptions<
+            TOutput,
+            RpcError<TErrorPayload>,
+            CursorPageParam<TInput>
+          >
+        ) => UseInfiniteQueryResult<
+          InfiniteData<TOutput, CursorPageParam<TInput>>,
+          RpcError<TErrorPayload>
         >
-      ) => UseInfiniteQueryResult<
-        InfiniteData<TOutput, CursorPageParam<TInput>>,
-        RpcError<TErrorPayload>
-      >
-    : never
-  : never;
+      : never
+    : never;
 
-interface QueryHooks<
-  TInput,
-  TOutput,
-  TErrorPayload extends RpcErrorUnion,
-> {
+interface QueryHooks<TInput, TOutput, TErrorPayload extends RpcErrorUnion> {
+  getQueryKey: TInput extends undefined
+    ? () => QueryKey
+    : (input: TInput) => QueryKey;
+
+  useInfiniteQuery: InfiniteQueryHook<TInput, TOutput, TErrorPayload>;
+
+  useMutation: (
+    options?: MutationOptions<TInput, TOutput, RpcError<TErrorPayload>>
+  ) => MutationResult<TInput, TOutput, RpcError<TErrorPayload>>;
   useQuery: TInput extends undefined
     ? (
         options?: QueryOptions<TOutput, RpcError<TErrorPayload>>
@@ -160,16 +167,6 @@ interface QueryHooks<
         input: TInput,
         options?: QueryOptions<TOutput, RpcError<TErrorPayload>>
       ) => UseQueryResult<TOutput, RpcError<TErrorPayload>>;
-
-  useMutation: (
-    options?: MutationOptions<TInput, TOutput, RpcError<TErrorPayload>>
-  ) => MutationResult<TInput, TOutput, RpcError<TErrorPayload>>;
-
-  useInfiniteQuery: InfiniteQueryHook<TInput, TOutput, TErrorPayload>;
-
-  getQueryKey: TInput extends undefined
-    ? () => QueryKey
-    : (input: TInput) => QueryKey;
 }
 
 type InferQueryClient<T extends object> = {
@@ -239,7 +236,11 @@ function splitMutationCallOptions<TInput, TOutput, TError>(
   const { headers, signal, onSuccess, onError, onSettled, ...mutateOptions } =
     options;
 
-  const wrappedMutateOptions: InternalMutationCallOptions<TInput, TOutput, TError> = {
+  const wrappedMutateOptions: InternalMutationCallOptions<
+    TInput,
+    TOutput,
+    TError
+  > = {
     ...mutateOptions,
     onSuccess: onSuccess
       ? (data, variables, onMutateResult, context) =>
@@ -257,7 +258,9 @@ function splitMutationCallOptions<TInput, TOutput, TError>(
 
   return {
     requestOptions:
-      headers === undefined && signal === undefined ? undefined : { headers, signal },
+      headers === undefined && signal === undefined
+        ? undefined
+        : { headers, signal },
     mutateOptions:
       Object.keys(wrappedMutateOptions).length === 0
         ? undefined

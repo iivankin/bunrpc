@@ -1,6 +1,5 @@
-import type { BunRequest } from "bun";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { BunRequest } from "bun";
 import type {
   MCPAuthOptions,
   MCPHeaderAuthOptions,
@@ -50,10 +49,7 @@ export function createOAuthProtectedResourceMetadata(
         (scope): scope is string => typeof scope === "string"
       )
     : [];
-  const scopesSupported = [
-    ...metadataScopes,
-    ...(auth.requiredScopes ?? []),
-  ];
+  const scopesSupported = [...metadataScopes, ...(auth.requiredScopes ?? [])];
 
   return {
     ...metadata,
@@ -69,7 +65,7 @@ export function createOAuthProtectedResourceMetadata(
 function createBearerChallenge(
   req: BunRequest<string>,
   path: string,
-  auth: MCPOAuthAuthOptions,
+  _auth: MCPOAuthAuthOptions,
   input: {
     error?: string;
     errorDescription?: string;
@@ -166,9 +162,7 @@ async function authenticateOAuthRequest(
   };
 }
 
-async function authenticateHeaderRequest<
-  TAuth extends MCPHeaderAuthOptions,
->(
+async function authenticateHeaderRequest<TAuth extends MCPHeaderAuthOptions>(
   req: BunRequest<string>,
   auth: TAuth
 ): Promise<{ auth: ResolvedMCPAuthContext<TAuth> } | Response> {
@@ -186,9 +180,7 @@ async function authenticateHeaderRequest<
   };
 }
 
-async function authenticateQueryRequest<
-  TAuth extends MCPQueryAuthOptions,
->(
+async function authenticateQueryRequest<TAuth extends MCPQueryAuthOptions>(
   req: BunRequest<string>,
   auth: TAuth
 ): Promise<{ auth: ResolvedMCPAuthContext<TAuth> } | Response> {
@@ -206,30 +198,38 @@ async function authenticateQueryRequest<
   };
 }
 
+type MCPRequestAuthResult<TAuth extends MCPAuthOptions | undefined> =
+  | { auth?: ResolvedMCPAuthContext<TAuth> }
+  | Response;
+
 export async function authenticateMCPRequest<
   TAuth extends MCPAuthOptions | undefined,
 >(
   req: BunRequest<string>,
   path: string,
   auth: TAuth
-): Promise<{ auth?: ResolvedMCPAuthContext<TAuth> } | Response> {
+): Promise<MCPRequestAuthResult<TAuth>> {
   if (!auth) {
     return {};
   }
 
   if (auth.type === "oauth") {
-    return authenticateOAuthRequest(req, path, auth) as Promise<
-      { auth?: ResolvedMCPAuthContext<TAuth> } | Response
-    >;
+    return (await authenticateOAuthRequest(
+      req,
+      path,
+      auth
+    )) as MCPRequestAuthResult<TAuth>;
   }
 
   if (auth.type === "header") {
-    return authenticateHeaderRequest(req, auth) as Promise<
-      { auth?: ResolvedMCPAuthContext<TAuth> } | Response
-    >;
+    return (await authenticateHeaderRequest(
+      req,
+      auth
+    )) as MCPRequestAuthResult<TAuth>;
   }
 
-  return authenticateQueryRequest(req, auth) as Promise<
-    { auth?: ResolvedMCPAuthContext<TAuth> } | Response
-  >;
+  return (await authenticateQueryRequest(
+    req,
+    auth
+  )) as MCPRequestAuthResult<TAuth>;
 }

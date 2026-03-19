@@ -1,14 +1,14 @@
-import type { BunRequest, Server as BunServer } from "bun";
 import type { BunRPCPluginSetupContext } from "@bunrpc/core";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
   CallToolRequestSchema,
-  ListToolsRequestSchema,
-  isInitializeRequest,
   type CallToolResult,
+  isInitializeRequest,
+  ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { BunRequest, Server as BunServer } from "bun";
 import { authenticateMCPRequest } from "./auth";
 import { isJSONObject } from "./json-schema";
 import type {
@@ -21,20 +21,20 @@ import type {
 interface CreateMCPRouteHandlerOptions<
   TOptions extends MCPPluginOptions = MCPPluginOptions,
 > {
+  auth: TOptions["auth"];
+  enableJsonResponse: boolean;
+  instructions?: string;
+  invokeProcedure: BunRPCPluginSetupContext<
+    MCPProcedureMeta,
+    TOptions
+  >["invokeProcedure"];
   path: string;
   serverInfo: {
     name: string;
     version: string;
   };
-  instructions?: string;
-  auth: TOptions["auth"];
-  enableJsonResponse: boolean;
   sessionIdGenerator: () => string;
   tools: MCPResolvedTool[];
-  invokeProcedure: BunRPCPluginSetupContext<
-    MCPProcedureMeta,
-    TOptions
-  >["invokeProcedure"];
 }
 
 function createTextContent(text: string): CallToolResult["content"] {
@@ -65,7 +65,9 @@ function createToolErrorResult(
   };
 }
 
-function createToolSuccessResult(data: Record<string, unknown>): CallToolResult {
+function createToolSuccessResult(
+  data: Record<string, unknown>
+): CallToolResult {
   return {
     content: createTextContent(JSON.stringify(data, null, 2)),
     structuredContent: data,
@@ -157,7 +159,7 @@ export function createMCPRouteHandler<
           {
             jsonrpc: "2.0",
             error: {
-              code: -32000,
+              code: -32_000,
               message: "Bad Request: No valid session ID provided",
             },
             id:
@@ -185,14 +187,16 @@ export function createMCPRouteHandler<
       }));
 
       mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
-        if (!currentReq || !currentServer) {
+        if (!(currentReq && currentServer)) {
           return createToolErrorResult("MCP request context is unavailable");
         }
 
         const tool = toolsByName.get(request.params.name);
 
         if (!tool) {
-          return createToolErrorResult(`Unknown MCP tool "${request.params.name}"`);
+          return createToolErrorResult(
+            `Unknown MCP tool "${request.params.name}"`
+          );
         }
 
         const result = await invokeProcedure(tool.procedureInfo, {
@@ -208,6 +212,16 @@ export function createMCPRouteHandler<
             },
           },
         });
+
+        if (result instanceof Response) {
+          return createToolErrorResult(
+            "Raw HTTP Response passthrough is not supported for MCP tool invocation",
+            {
+              contentType: result.headers.get("content-type"),
+              status: result.status,
+            }
+          );
+        }
 
         if (!result.ok) {
           const errorLabel =
@@ -243,7 +257,8 @@ export function createMCPRouteHandler<
     }
 
     return transport.handleRequest(req, {
-      authInfo: authResult.auth?.type === "oauth" ? authResult.auth.data : undefined,
+      authInfo:
+        authResult.auth?.type === "oauth" ? authResult.auth.data : undefined,
       parsedBody,
     });
   };

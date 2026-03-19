@@ -18,12 +18,12 @@ export interface ClientConfig {
   baseUrl?: string;
   /** Custom fetch function */
   fetch?: FetchFn;
-  /** Pretty request/response console logging (default: true outside production) */
-  log?: boolean;
   /** Headers to include in all requests */
   headers?:
     | Record<string, string>
     | (() => Record<string, string> | Promise<Record<string, string>>);
+  /** Pretty request/response console logging (default: true outside production) */
+  log?: boolean;
 }
 
 // ============================================================================
@@ -32,13 +32,13 @@ export interface ClientConfig {
 
 const RPC_ERROR_MARKER = "__bunrpcRpcError" as const;
 
-type RpcErrorShape<TPayload extends RpcErrorUnion> = {
-  readonly [RPC_ERROR_MARKER]: true;
-  source: TPayload["source"];
+interface RpcErrorShape<TPayload extends RpcErrorUnion> {
   code: TPayload["code"];
-  status: number;
   details: TPayload["details"];
-};
+  source: TPayload["source"];
+  status: number;
+  readonly [RPC_ERROR_MARKER]: true;
+}
 
 export type RpcError<TPayload extends RpcErrorUnion = RpcErrorUnion> =
   TPayload extends RpcErrorUnion ? Error & RpcErrorShape<TPayload> : never;
@@ -46,7 +46,9 @@ export type RpcError<TPayload extends RpcErrorUnion = RpcErrorUnion> =
 export function createRpcError<TPayload extends RpcErrorUnion>(
   payload: TPayload
 ): RpcError<TPayload> {
-  const error = new Error(payload.message ?? payload.code) as RpcError<TPayload>;
+  const error = new Error(
+    payload.message ?? payload.code
+  ) as RpcError<TPayload>;
   error.name = "RpcError";
 
   const target = error as unknown as Record<string, unknown>;
@@ -80,9 +82,9 @@ interface ClientLogEvent {
   customHeaders?: Record<string, string>;
   durationMs?: number;
   input: unknown;
+  procedurePath: string;
   result?: ClientCallResult;
   url: string;
-  procedurePath: string;
 }
 
 const ANSI = {
@@ -236,7 +238,10 @@ function logClientResponse(event: ClientLogEvent): void {
 
   if (!hasClientLogDetails(event)) {
     logResponseSummary(event, statusLabel);
-    logPayload(payloadLabel, event.result.ok ? event.result.data : event.result.error);
+    logPayload(
+      payloadLabel,
+      event.result.ok ? event.result.data : event.result.error
+    );
     return;
   }
 
@@ -258,7 +263,10 @@ function logClientResponse(event: ClientLogEvent): void {
     if (event.input !== undefined) {
       logPayload("input", event.input);
     }
-    logPayload(payloadLabel, event.result.ok ? event.result.data : event.result.error);
+    logPayload(
+      payloadLabel,
+      event.result.ok ? event.result.data : event.result.error
+    );
     closeLogGroup();
     return;
   }
@@ -278,7 +286,10 @@ function logClientResponse(event: ClientLogEvent): void {
   if (event.input !== undefined) {
     logPayload("input", event.input);
   }
-  logPayload(payloadLabel, event.result.ok ? event.result.data : event.result.error);
+  logPayload(
+    payloadLabel,
+    event.result.ok ? event.result.data : event.result.error
+  );
   closeLogGroup();
 }
 
@@ -336,9 +347,14 @@ export function createClient<TRouter extends Router>(
     } catch (error) {
       return finalize({
         ok: false,
-        error: createSystemError("NETWORK_ERROR", 0, "Failed to resolve headers", {
-          cause: String(error),
-        }),
+        error: createSystemError(
+          "NETWORK_ERROR",
+          0,
+          "Failed to resolve headers",
+          {
+            cause: String(error),
+          }
+        ),
       });
     }
 
@@ -421,7 +437,7 @@ export function createClient<TRouter extends Router>(
         return createProxy([...pathParts, prop]);
       },
 
-      apply: async (_, __, args: unknown[]) => {
+      apply: (_, __, args: unknown[]) => {
         const input = args[0];
         const requestOptions = args[1] as ClientRequestOptions | undefined;
         return callProcedure(pathParts, input, requestOptions);
