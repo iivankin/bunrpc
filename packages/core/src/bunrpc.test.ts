@@ -3,6 +3,7 @@ import type { BunRequest } from "bun";
 import {
   type AppRpcError,
   BUNRPC_CLIENT_REQUEST_META,
+  BUNRPC_RAW_RESPONSE_HEADER,
   type BunRPCPlugin,
   type ClientRequestOptions,
   createClient,
@@ -313,7 +314,49 @@ describe("@bunrpc/core", () => {
     expect(response.headers.get("content-type")).toBe(
       "text/event-stream; charset=utf-8"
     );
+    expect(response.headers.get(BUNRPC_RAW_RESPONSE_HEADER)).toBe("raw");
     expect(await response.text()).toBe("event: message\ndata: hello\n\n");
+  });
+
+  test("client returns raw Response objects from passthrough handlers", async () => {
+    const fetchMock = mock(
+      async () =>
+        new Response("event: message\ndata: hello\n\n", {
+          status: 202,
+          headers: {
+            "cache-control": "no-cache",
+            "content-type": "text/event-stream; charset=utf-8",
+            [BUNRPC_RAW_RESPONSE_HEADER]: "raw",
+          },
+        })
+    );
+    const client = createClient<{
+      events: {
+        _type: "procedure";
+        _input: undefined;
+        _output: Response;
+        _error: never;
+      };
+    }>({
+      baseUrl: "http://localhost/api",
+      fetch: fetchMock,
+      log: false,
+    });
+
+    const result = await client.events();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("Expected raw response passthrough");
+    }
+
+    expect(result.data).toBeInstanceOf(Response);
+    expect(result.data.status).toBe(202);
+    expect(result.data.headers.get("cache-control")).toBe("no-cache");
+    expect(result.data.headers.get("content-type")).toBe(
+      "text/event-stream; charset=utf-8"
+    );
+    expect(await result.data.text()).toBe("event: message\ndata: hello\n\n");
   });
 
   test("supports app-scoped plugins with typed procedure methods and router extensions", async () => {

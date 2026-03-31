@@ -1,6 +1,7 @@
 import { parseErrorPayload } from "./error-payload";
 import {
   BUNRPC_CLIENT_REQUEST_META,
+  BUNRPC_RAW_RESPONSE_HEADER,
   type ClientOperationType,
   type ClientRequestOptions,
   createSystemError,
@@ -341,6 +342,10 @@ export function createClient<TRouter extends Router>(
           cause: String(error),
         }),
       });
+    }
+
+    if (response.headers.get(BUNRPC_RAW_RESPONSE_HEADER) === "raw") {
+      return finalize({ ok: true, data: response });
     }
 
     if (!response.ok) {

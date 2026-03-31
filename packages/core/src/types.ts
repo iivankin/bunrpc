@@ -660,6 +660,7 @@ export interface ClientRequestMeta {
 }
 
 export const BUNRPC_CLIENT_REQUEST_META = Symbol("bunrpc.clientRequestMeta");
+export const BUNRPC_RAW_RESPONSE_HEADER = "x-bunrpc-response-mode";
 
 export interface ClientRequestOptions {
   headers?: Record<string, string>;

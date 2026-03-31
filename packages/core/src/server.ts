@@ -6,6 +6,7 @@ import {
   type AnyProcedure,
   type AppRpcError,
   type BaseContext,
+  BUNRPC_RAW_RESPONSE_HEADER,
   type BunRPCRouteHandler,
   type BunRPCRoutes,
   createAppError,
@@ -1057,6 +1058,17 @@ function isRawResponse(value: unknown): value is Response {
   return value instanceof Response;
 }
 
+function markRawResponse(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set(BUNRPC_RAW_RESPONSE_HEADER, "raw");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function executeProcedure({
   procedure,
   fullPath,
@@ -1336,7 +1348,7 @@ function buildHttpRoutes<
         });
 
         if (isRawResponse(result)) {
-          return result;
+          return markRawResponse(result);
         }
 
         if (!result.ok) {

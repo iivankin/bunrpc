@@ -48,6 +48,7 @@ export type {
 } from "./types";
 export {
   BUNRPC_CLIENT_REQUEST_META,
+  BUNRPC_RAW_RESPONSE_HEADER,
   isAppError,
   isValidationError,
 } from "./types";
