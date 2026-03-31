@@ -1,5 +1,7 @@
 import { parseErrorPayload } from "./error-payload";
 import {
+  BUNRPC_CLIENT_REQUEST_META,
+  type ClientOperationType,
   type ClientRequestOptions,
   createSystemError,
   type InferClient,
@@ -79,9 +81,11 @@ type ClientCallResult =
   | { ok: false; error: RpcErrorUnion };
 
 interface ClientLogEvent {
+  callId: number;
   customHeaders?: Record<string, string>;
   durationMs?: number;
   input: unknown;
+  operationType: ClientOperationType;
   procedurePath: string;
   result?: ClientCallResult;
   url: string;
@@ -94,7 +98,9 @@ const ANSI = {
   cyan: "\u001B[36m",
   blue: "\u001B[34m",
   green: "\u001B[32m",
+  magenta: "\u001B[35m",
   red: "\u001B[31m",
+  yellow: "\u001B[33m",
 } as const;
 
 function isBrowserConsole(): boolean {
@@ -106,124 +112,113 @@ function isBrowserConsole(): boolean {
   return globalScope.window !== undefined && globalScope.document !== undefined;
 }
 
-function openLogGroup(message: string, ...args: unknown[]): void {
-  if (typeof console.groupCollapsed === "function") {
-    console.groupCollapsed(message, ...args);
-    return;
-  }
-
-  console.log(message, ...args);
+function formatDuration(durationMs: number): number {
+  return durationMs >= 100
+    ? Math.round(durationMs)
+    : Number(durationMs.toFixed(1));
 }
 
-function closeLogGroup(): void {
-  if (typeof console.groupEnd === "function") {
-    console.groupEnd();
+function getOperationBrowserStyle(operationType: ClientOperationType): string {
+  switch (operationType) {
+    case "mutation":
+      return "background:#fde047;color:#713f12;border-radius:4px;padding:2px 8px;font-weight:700;";
+    case "query":
+      return "background:#67e8f9;color:#164e63;border-radius:4px;padding:2px 8px;font-weight:700;";
+    case "subscription":
+      return "background:#c4b5fd;color:#5b21b6;border-radius:4px;padding:2px 8px;font-weight:700;";
+    case "rpc":
+      return "background:#d1d5db;color:#111827;border-radius:4px;padding:2px 8px;font-weight:700;";
+    default:
+      return "background:#d1d5db;color:#111827;border-radius:4px;padding:2px 8px;font-weight:700;";
   }
 }
 
-function logPayload(label: string, value: unknown): void {
+function getOperationTerminalColor(operationType: ClientOperationType): string {
+  switch (operationType) {
+    case "mutation":
+      return ANSI.yellow;
+    case "query":
+      return ANSI.cyan;
+    case "subscription":
+      return ANSI.magenta;
+    case "rpc":
+      return ANSI.blue;
+    default:
+      return ANSI.blue;
+  }
+}
+
+function buildLogLabel(
+  event: ClientLogEvent,
+  direction: "request" | "response"
+): string {
+  const arrow = direction === "request" ? ">>" : "<<";
+  return `${arrow} ${event.operationType} #${event.callId} ${event.procedurePath}`;
+}
+
+function buildRequestPayload(event: ClientLogEvent): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+
+  if (event.customHeaders !== undefined) {
+    payload.headers = event.customHeaders;
+  }
+
+  if (event.input !== undefined) {
+    payload.input = event.input;
+  }
+
+  return payload;
+}
+
+function buildResponsePayload(event: ClientLogEvent): Record<string, unknown> {
+  if (event.result === undefined || event.durationMs === undefined) {
+    return {};
+  }
+
+  const payload = buildRequestPayload(event);
+
+  payload.elapsedMs = formatDuration(event.durationMs);
+  payload[event.result.ok ? "result" : "error"] = event.result.ok
+    ? event.result.data
+    : event.result.error;
+
+  return payload;
+}
+
+function logClientEvent(
+  event: ClientLogEvent,
+  direction: "request" | "response"
+): void {
+  const label = buildLogLabel(event, direction);
+  const payload =
+    direction === "request"
+      ? buildRequestPayload(event)
+      : buildResponsePayload(event);
+  const consoleMethod =
+    direction === "response" && event.result && !event.result.ok
+      ? console.error
+      : console.log;
+
   if (isBrowserConsole()) {
-    console.log("%c%s", "color:#64748b;font-weight:700;", label, value);
-    return;
-  }
-
-  console.log(label, value);
-}
-
-function formatDuration(durationMs: number): string {
-  return `${durationMs.toFixed(durationMs >= 100 ? 0 : 1)}ms`;
-}
-
-function hasClientLogDetails(event: ClientLogEvent): boolean {
-  return event.input !== undefined || event.customHeaders !== undefined;
-}
-
-function logRequestSummary(event: ClientLogEvent): void {
-  if (isBrowserConsole()) {
-    console.log(
-      "%c bunrpc %c request %c %s %c POST %s",
-      "background:#111827;color:#f8fafc;border-radius:999px;padding:2px 8px;font-weight:700;",
-      "color:#2563eb;font-weight:700;",
-      "color:#0f172a;font-weight:700;",
-      event.procedurePath,
-      "color:#64748b;",
-      event.url
+    consoleMethod.call(
+      console,
+      "%c%s",
+      getOperationBrowserStyle(event.operationType),
+      label,
+      payload
     );
     return;
   }
 
-  console.log(
-    `${ANSI.cyan}${ANSI.bold}[bunrpc]${ANSI.reset} ${ANSI.blue}request${ANSI.reset} ${ANSI.bold}${event.procedurePath}${ANSI.reset} ${ANSI.dim}POST ${event.url}${ANSI.reset}`
-  );
-}
-
-function logResponseSummary(event: ClientLogEvent, statusLabel: string): void {
-  if (event.durationMs === undefined) {
-    return;
-  }
-
-  if (isBrowserConsole()) {
-    console.log(
-      "%c bunrpc %c response %c %s %c %s %c %s",
-      "background:#111827;color:#f8fafc;border-radius:999px;padding:2px 8px;font-weight:700;",
-      `color:${event.result?.ok ? "#16a34a" : "#dc2626"};font-weight:700;`,
-      "color:#0f172a;font-weight:700;",
-      event.procedurePath,
-      "color:#64748b;",
-      formatDuration(event.durationMs),
-      `color:${event.result?.ok ? "#16a34a" : "#dc2626"};font-weight:700;`,
-      statusLabel
-    );
-    return;
-  }
-
-  console.log(
-    `${ANSI.cyan}${ANSI.bold}[bunrpc]${ANSI.reset} ${
-      event.result?.ok ? ANSI.green : ANSI.red
-    }response${ANSI.reset} ${ANSI.bold}${event.procedurePath}${ANSI.reset} ${ANSI.dim}${formatDuration(
-      event.durationMs
-    )}${ANSI.reset} ${
-      event.result?.ok ? ANSI.green : ANSI.red
-    }${statusLabel}${ANSI.reset}`
+  consoleMethod.call(
+    console,
+    `${getOperationTerminalColor(event.operationType)}${ANSI.bold}${label}${ANSI.reset}`,
+    payload
   );
 }
 
 function logClientRequest(event: ClientLogEvent): void {
-  if (!hasClientLogDetails(event)) {
-    logRequestSummary(event);
-    return;
-  }
-
-  if (isBrowserConsole()) {
-    openLogGroup(
-      "%c bunrpc %c request %c %s %c POST %s",
-      "background:#111827;color:#f8fafc;border-radius:999px;padding:2px 8px;font-weight:700;",
-      "color:#2563eb;font-weight:700;",
-      "color:#0f172a;font-weight:700;",
-      event.procedurePath,
-      "color:#64748b;",
-      event.url
-    );
-    if (event.customHeaders) {
-      logPayload("headers", event.customHeaders);
-    }
-    if (event.input !== undefined) {
-      logPayload("input", event.input);
-    }
-    closeLogGroup();
-    return;
-  }
-
-  openLogGroup(
-    `${ANSI.cyan}${ANSI.bold}[bunrpc]${ANSI.reset} ${ANSI.blue}request${ANSI.reset} ${ANSI.bold}${event.procedurePath}${ANSI.reset} ${ANSI.dim}POST ${event.url}${ANSI.reset}`
-  );
-  if (event.customHeaders) {
-    logPayload("headers", event.customHeaders);
-  }
-  if (event.input !== undefined) {
-    logPayload("input", event.input);
-  }
-  closeLogGroup();
+  logClientEvent(event, "request");
 }
 
 function logClientResponse(event: ClientLogEvent): void {
@@ -231,66 +226,7 @@ function logClientResponse(event: ClientLogEvent): void {
     return;
   }
 
-  const statusLabel = event.result.ok
-    ? "OK"
-    : `${event.result.error.source}:${event.result.error.code}`;
-  const payloadLabel = event.result.ok ? "response" : "error";
-
-  if (!hasClientLogDetails(event)) {
-    logResponseSummary(event, statusLabel);
-    logPayload(
-      payloadLabel,
-      event.result.ok ? event.result.data : event.result.error
-    );
-    return;
-  }
-
-  if (isBrowserConsole()) {
-    openLogGroup(
-      "%c bunrpc %c response %c %s %c %s %c %s",
-      "background:#111827;color:#f8fafc;border-radius:999px;padding:2px 8px;font-weight:700;",
-      `color:${event.result.ok ? "#16a34a" : "#dc2626"};font-weight:700;`,
-      "color:#0f172a;font-weight:700;",
-      event.procedurePath,
-      "color:#64748b;",
-      formatDuration(event.durationMs),
-      `color:${event.result.ok ? "#16a34a" : "#dc2626"};font-weight:700;`,
-      statusLabel
-    );
-    if (event.customHeaders) {
-      logPayload("headers", event.customHeaders);
-    }
-    if (event.input !== undefined) {
-      logPayload("input", event.input);
-    }
-    logPayload(
-      payloadLabel,
-      event.result.ok ? event.result.data : event.result.error
-    );
-    closeLogGroup();
-    return;
-  }
-
-  openLogGroup(
-    `${ANSI.cyan}${ANSI.bold}[bunrpc]${ANSI.reset} ${
-      event.result.ok ? ANSI.green : ANSI.red
-    }response${ANSI.reset} ${ANSI.bold}${event.procedurePath}${ANSI.reset} ${ANSI.dim}${formatDuration(
-      event.durationMs
-    )}${ANSI.reset} ${
-      event.result.ok ? ANSI.green : ANSI.red
-    }${statusLabel}${ANSI.reset}`
-  );
-  if (event.customHeaders) {
-    logPayload("headers", event.customHeaders);
-  }
-  if (event.input !== undefined) {
-    logPayload("input", event.input);
-  }
-  logPayload(
-    payloadLabel,
-    event.result.ok ? event.result.data : event.result.error
-  );
-  closeLogGroup();
+  logClientEvent(event, "response");
 }
 
 // ============================================================================
@@ -314,6 +250,7 @@ export function createClient<TRouter extends Router>(
     log,
   } = config;
   const shouldLog = log ?? process.env.NODE_ENV !== "production";
+  let nextCallId = 1;
 
   async function callProcedure(
     pathParts: string[],
@@ -321,6 +258,9 @@ export function createClient<TRouter extends Router>(
     requestOptions?: ClientRequestOptions
   ): Promise<ClientCallResult> {
     const path = `${baseUrl}/${pathParts.join("/")}`;
+    const callId = nextCallId++;
+    const operationType =
+      requestOptions?.[BUNRPC_CLIENT_REQUEST_META]?.operationType ?? "rpc";
     const procedurePath = pathParts.join(".");
     const startedAt = Date.now();
     let loggedCustomHeaders: Record<string, string> | undefined;
@@ -328,9 +268,11 @@ export function createClient<TRouter extends Router>(
     const finalize = (result: ClientCallResult): ClientCallResult => {
       if (shouldLog) {
         logClientResponse({
+          callId,
           customHeaders: loggedCustomHeaders,
           durationMs: Date.now() - startedAt,
           input,
+          operationType,
           procedurePath,
           result,
           url: path,
@@ -367,8 +309,10 @@ export function createClient<TRouter extends Router>(
 
     if (shouldLog) {
       logClientRequest({
+        callId,
         customHeaders: loggedCustomHeaders,
         input,
+        operationType,
         procedurePath,
         url: path,
       });

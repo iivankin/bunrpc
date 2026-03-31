@@ -653,9 +653,18 @@ export interface BunRPCRoutes<
 // Client types - inferred from Router type only
 // ============================================================================
 
+export type ClientOperationType = "mutation" | "query" | "rpc" | "subscription";
+
+export interface ClientRequestMeta {
+  operationType?: ClientOperationType;
+}
+
+export const BUNRPC_CLIENT_REQUEST_META = Symbol("bunrpc.clientRequestMeta");
+
 export interface ClientRequestOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  [BUNRPC_CLIENT_REQUEST_META]?: ClientRequestMeta;
 }
 
 type ProcedureServerSystemErrorsByInput<TInput> =

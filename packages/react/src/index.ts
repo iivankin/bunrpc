@@ -1,5 +1,7 @@
 import {
+  BUNRPC_CLIENT_REQUEST_META,
   type ClientConfig,
+  type ClientOperationType,
   type ClientRequestOptions,
   createClient,
   createRpcError,
@@ -268,6 +270,16 @@ function splitMutationCallOptions<TInput, TOutput, TError>(
   };
 }
 
+function withOperationType(
+  requestOptions: ClientRequestOptions | undefined,
+  operationType: ClientOperationType
+): ClientRequestOptions {
+  return {
+    ...(requestOptions ?? {}),
+    [BUNRPC_CLIENT_REQUEST_META]: { operationType },
+  };
+}
+
 export function createQueryClient<TRouter extends Router>(
   config: ClientConfig = {}
 ): InferQueryClient<TRouter> {
@@ -352,7 +364,8 @@ export function createQueryClient<TRouter extends Router>(
 
         return useQuery({
           queryKey: buildQueryKey(pathParts, input),
-          queryFn: ({ signal }) => rpcFetch(pathParts, input, { signal }),
+          queryFn: ({ signal }) =>
+            rpcFetch(pathParts, input, withOperationType({ signal }, "query")),
           ...options,
         });
       },
@@ -366,7 +379,11 @@ export function createQueryClient<TRouter extends Router>(
         const mutation = useMutation({
           ...mutationOptions,
           mutationFn: (variables: MutationVariables<unknown>) =>
-            rpcFetch(pathParts, variables.input, variables.requestOptions),
+            rpcFetch(
+              pathParts,
+              variables.input,
+              withOperationType(variables.requestOptions, "mutation")
+            ),
           onMutate: onMutate
             ? (variables: MutationVariables<unknown>, context) =>
                 onMutate(variables.input, context)
@@ -439,7 +456,7 @@ export function createQueryClient<TRouter extends Router>(
             rpcFetch(
               pathParts,
               buildInfiniteQueryInput(input, pageParam as TPageParam),
-              { signal }
+              withOperationType({ signal }, "query")
             ),
           initialPageParam: initialCursor as TPageParam,
           getNextPageParam: getNextCursor,

@@ -18,6 +18,8 @@ export type {
   BunRPCPluginSetupContext,
   BunRPCPluginSetupResult,
   BunRPCRouteHandler,
+  ClientOperationType,
+  ClientRequestMeta,
   ClientRequestOptions,
   InferClient,
   InferSchema,
@@ -44,4 +46,8 @@ export type {
   ValidationErrorDetails,
   ValidationIssue,
 } from "./types";
-export { isAppError, isValidationError } from "./types";
+export {
+  BUNRPC_CLIENT_REQUEST_META,
+  isAppError,
+  isValidationError,
+} from "./types";

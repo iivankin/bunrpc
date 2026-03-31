@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { BunRequest } from "bun";
 import {
   type AppRpcError,
+  BUNRPC_CLIENT_REQUEST_META,
   type BunRPCPlugin,
   type ClientRequestOptions,
   createClient,
@@ -56,25 +57,20 @@ function createSingleStringFieldSchema<TKey extends string>(
 
 function withMockedConsole<T>(
   run: (mocks: {
-    groupCollapsed: ReturnType<typeof mock>;
-    groupEnd: ReturnType<typeof mock>;
+    error: ReturnType<typeof mock>;
     log: ReturnType<typeof mock>;
   }) => Promise<T> | T
 ): Promise<T> {
-  const originalGroupCollapsed = console.groupCollapsed;
-  const originalGroupEnd = console.groupEnd;
+  const originalError = console.error;
   const originalLog = console.log;
-  const groupCollapsed = mock(() => {});
-  const groupEnd = mock(() => {});
+  const error = mock(() => {});
   const log = mock(() => {});
 
-  console.groupCollapsed = groupCollapsed as typeof console.groupCollapsed;
-  console.groupEnd = groupEnd as typeof console.groupEnd;
+  console.error = error as typeof console.error;
   console.log = log as typeof console.log;
 
-  return Promise.resolve(run({ groupCollapsed, groupEnd, log })).finally(() => {
-    console.groupCollapsed = originalGroupCollapsed;
-    console.groupEnd = originalGroupEnd;
+  return Promise.resolve(run({ error, log })).finally(() => {
+    console.error = originalError;
     console.log = originalLog;
   });
 }
@@ -414,8 +410,8 @@ describe("@bunrpc/core", () => {
     );
   });
 
-  test("client logging omits undefined input and includes custom headers", async () => {
-    await withMockedConsole(async ({ groupCollapsed, groupEnd, log }) => {
+  test("client logging uses tRPC-style labels and payloads", async () => {
+    await withMockedConsole(async ({ error, log }) => {
       const fetchMock = mock(async () => Response.json({ ok: true }));
       const client = createClient<{
         ping: {
@@ -437,6 +433,9 @@ describe("@bunrpc/core", () => {
         headers: {
           "x-trace-id": "trace_1",
         },
+        [BUNRPC_CLIENT_REQUEST_META]: {
+          operationType: "query",
+        },
       });
 
       expect(result).toEqual({
@@ -446,12 +445,27 @@ describe("@bunrpc/core", () => {
         },
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(groupCollapsed).toHaveBeenCalledTimes(2);
-      expect(groupEnd).toHaveBeenCalledTimes(2);
+      expect(log).toHaveBeenCalledTimes(2);
+      expect(error).not.toHaveBeenCalled();
 
-      const logLabels = log.mock.calls.map((call) => call[0]);
-      expect(logLabels).toContain("headers");
-      expect(logLabels).not.toContain("input");
+      expect(String(log.mock.calls[0]?.[0])).toContain(">> query #1 ping");
+      expect(log.mock.calls[0]?.[1]).toEqual({
+        headers: {
+          authorization: "Bearer demo-user",
+          "x-trace-id": "trace_1",
+        },
+      });
+      expect(String(log.mock.calls[1]?.[0])).toContain("<< query #1 ping");
+      expect(log.mock.calls[1]?.[1]).toEqual({
+        elapsedMs: expect.any(Number),
+        headers: {
+          authorization: "Bearer demo-user",
+          "x-trace-id": "trace_1",
+        },
+        result: {
+          ok: true,
+        },
+      });
     });
   });
 });

@@ -1,5 +1,5 @@
 {
-  "name": "brpc-monorepo",
+  "name": "bunrpc",
   "private": true,
   "license": "Apache-2.0",
   "repository": {
@@ -23,8 +23,8 @@
     "prepare": "lefthook install --reset-hooks-path"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.8",
+    "@biomejs/biome": "2.4.10",
     "lefthook": "2.1.4",
-    "ultracite": "7.3.2"
+    "ultracite": "7.4.0"
   }
 }
