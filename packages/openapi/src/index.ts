@@ -1,4 +1,9 @@
 import type { BunRPCPlugin, StandardSchemaV1 } from "@bunrpc/core";
+import {
+  extractInputJSONSchema,
+  isRecord,
+  isReferenceObject,
+} from "./json-schema";
 import type {
   OpenAPIObject,
   OpenAPIPathItemObject,
@@ -8,24 +13,11 @@ import type {
   OpenAPIRequestBodyObject,
   OpenAPIResponsesObject,
   OpenAPISecurityRequirementObject,
-  SwaggerUIOptions,
 } from "./openapi-types";
+import { createOutputSchemaRegistry } from "./output-schema-registry";
+import { createSwaggerHtml, resolveSwaggerOptions } from "./swagger-ui";
 
 const DEFAULT_DOCUMENT_PATH = "/openapi.json";
-const DEFAULT_SWAGGER_PATH = "/docs";
-const DEFAULT_SWAGGER_ASSET_BASE = "https://unpkg.com/swagger-ui-dist@5.11.0";
-
-interface StandardSchemaWithJSONSchema extends StandardSchemaV1 {
-  "~standard": StandardSchemaV1["~standard"] & {
-    jsonSchema?: {
-      input?: () => unknown;
-      output?: () => unknown;
-    };
-  };
-  toJSONSchema?: () => unknown;
-}
-
-interface ResolvedSwaggerOptions extends Required<SwaggerUIOptions> {}
 
 export interface OpenAPIProcedureMethods {
   deprecated: (
@@ -87,71 +79,6 @@ function createDefaultRequestBody(): OpenAPIRequestBodyObject {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function sanitizeJSONSchema(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeJSONSchema(item));
-  }
-
-  if (!isRecord(value)) {
-    return value;
-  }
-
-  const next: Record<string, unknown> = {};
-
-  for (const [key, entry] of Object.entries(value)) {
-    if (key === "~standard" || key === "$schema") {
-      continue;
-    }
-
-    next[key] = sanitizeJSONSchema(entry);
-  }
-
-  return next;
-}
-
-function extractJSONSchema(
-  schema: StandardSchemaV1 | undefined,
-  mode: "input" | "output"
-): unknown | undefined {
-  if (!schema) {
-    return undefined;
-  }
-
-  const schemaWithJSONSchema = schema as StandardSchemaWithJSONSchema;
-  const standardJSONSchema =
-    mode === "output"
-      ? (schemaWithJSONSchema["~standard"].jsonSchema?.output?.() ??
-        schemaWithJSONSchema["~standard"].jsonSchema?.input?.())
-      : schemaWithJSONSchema["~standard"].jsonSchema?.input?.();
-
-  if (standardJSONSchema !== undefined) {
-    return sanitizeJSONSchema(standardJSONSchema);
-  }
-
-  const runtimeJSONSchema = schemaWithJSONSchema.toJSONSchema?.();
-  if (runtimeJSONSchema !== undefined) {
-    return sanitizeJSONSchema(runtimeJSONSchema);
-  }
-
-  return undefined;
-}
-
-function extractInputJSONSchema(
-  schema: StandardSchemaV1 | undefined
-): unknown | undefined {
-  return extractJSONSchema(schema, "input");
-}
-
-function extractOutputJSONSchema(
-  schema: StandardSchemaV1 | undefined
-): unknown | undefined {
-  return extractJSONSchema(schema, "output");
-}
-
 function createDefaultSuccessResponse(outputSchema: unknown | undefined) {
   return {
     description: "Successful response",
@@ -167,10 +94,6 @@ function createDefaultSuccessResponse(outputSchema: unknown | undefined) {
       },
     },
   };
-}
-
-function isReferenceObject(value: unknown): value is OpenAPIReferenceObject {
-  return isRecord(value) && typeof value.$ref === "string";
 }
 
 function mergeSuccessResponse(
@@ -218,174 +141,6 @@ function createResponses(
   return {
     ...responses,
     "200": mergeSuccessResponse(responses["200"], outputSchema),
-  };
-}
-
-function sortJSONValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortJSONValue(item));
-  }
-
-  if (!isRecord(value)) {
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, sortJSONValue(entry)])
-  );
-}
-
-function createJSONSchemaSignature(value: unknown): string {
-  return JSON.stringify(sortJSONValue(value));
-}
-
-function collectNamedSchemas(
-  schema: unknown,
-  candidates: Array<{ title: string; schema: Record<string, unknown> }>
-): void {
-  if (Array.isArray(schema)) {
-    for (const item of schema) {
-      collectNamedSchemas(item, candidates);
-    }
-
-    return;
-  }
-
-  if (!isRecord(schema)) {
-    return;
-  }
-
-  if (typeof schema.title === "string" && schema.title.length > 0) {
-    candidates.push({
-      title: schema.title,
-      schema,
-    });
-  }
-
-  for (const entry of Object.values(schema)) {
-    collectNamedSchemas(entry, candidates);
-  }
-}
-
-function replaceNamedSchemasWithRefs(
-  schema: unknown,
-  reusableTitles: ReadonlySet<string>,
-  currentComponentTitle?: string
-): unknown {
-  if (Array.isArray(schema)) {
-    return schema.map((item) =>
-      replaceNamedSchemasWithRefs(item, reusableTitles, currentComponentTitle)
-    );
-  }
-
-  if (!isRecord(schema)) {
-    return schema;
-  }
-
-  const title = typeof schema.title === "string" ? schema.title : undefined;
-  if (
-    title !== undefined &&
-    reusableTitles.has(title) &&
-    title !== currentComponentTitle
-  ) {
-    return {
-      $ref: `#/components/schemas/${title}`,
-    };
-  }
-
-  return Object.fromEntries(
-    Object.entries(schema).map(([key, entry]) => [
-      key,
-      replaceNamedSchemasWithRefs(entry, reusableTitles, currentComponentTitle),
-    ])
-  );
-}
-
-function createOutputSchemaRegistry(
-  procedures: Array<{
-    fullPath: string;
-    outputSchema?: StandardSchemaV1;
-  }>,
-  components: OpenAPIPluginOptions["components"] | undefined
-): {
-  componentsSchemas: NonNullable<OpenAPIPluginOptions["components"]>["schemas"];
-  resolvedOutputSchemasByPath: Map<string, unknown>;
-} {
-  const existingSchemaNames = new Set(Object.keys(components?.schemas ?? {}));
-  const extractedOutputSchemasByPath = new Map<string, unknown>();
-  const candidatesByTitle = new Map<
-    string,
-    Array<{ schema: Record<string, unknown>; signature: string }>
-  >();
-
-  for (const procedure of procedures) {
-    const outputSchema = extractOutputJSONSchema(procedure.outputSchema);
-    if (outputSchema === undefined) {
-      continue;
-    }
-
-    extractedOutputSchemasByPath.set(procedure.fullPath, outputSchema);
-
-    const candidates: Array<{
-      title: string;
-      schema: Record<string, unknown>;
-    }> = [];
-    collectNamedSchemas(outputSchema, candidates);
-
-    for (const candidate of candidates) {
-      const titleCandidates = candidatesByTitle.get(candidate.title) ?? [];
-      titleCandidates.push({
-        schema: candidate.schema,
-        signature: createJSONSchemaSignature(candidate.schema),
-      });
-      candidatesByTitle.set(candidate.title, titleCandidates);
-    }
-  }
-
-  const reusableSchemas = new Map<string, Record<string, unknown>>();
-
-  for (const [title, titleCandidates] of candidatesByTitle) {
-    if (titleCandidates.length < 2 || existingSchemaNames.has(title)) {
-      continue;
-    }
-
-    const [firstCandidate, ...restCandidates] = titleCandidates;
-    if (!firstCandidate) {
-      continue;
-    }
-
-    if (
-      restCandidates.some(
-        (candidate) => candidate.signature !== firstCandidate.signature
-      )
-    ) {
-      continue;
-    }
-
-    reusableSchemas.set(title, firstCandidate.schema);
-  }
-
-  const reusableTitles = new Set(reusableSchemas.keys());
-  const componentsSchemas = Object.fromEntries(
-    Array.from(reusableSchemas.entries()).map(([title, schema]) => [
-      title,
-      replaceNamedSchemasWithRefs(schema, reusableTitles, title),
-    ])
-  ) as NonNullable<OpenAPIPluginOptions["components"]>["schemas"];
-
-  const resolvedOutputSchemasByPath = new Map<string, unknown>();
-  for (const [fullPath, schema] of extractedOutputSchemasByPath) {
-    resolvedOutputSchemasByPath.set(
-      fullPath,
-      replaceNamedSchemasWithRefs(schema, reusableTitles)
-    );
-  }
-
-  return {
-    componentsSchemas,
-    resolvedOutputSchemasByPath,
   };
 }
 
@@ -439,109 +194,6 @@ function createOperation(
   };
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function resolveSwaggerOptions(
-  swagger: OpenAPIPluginOptions["swagger"],
-  infoTitle: string
-): ResolvedSwaggerOptions | null {
-  if (!swagger) {
-    return null;
-  }
-
-  if (swagger === true) {
-    return {
-      path: DEFAULT_SWAGGER_PATH,
-      title: `${infoTitle} Swagger UI`,
-      assetBaseUrl: DEFAULT_SWAGGER_ASSET_BASE,
-      layout: "BaseLayout",
-      persistAuthorization: true,
-      displayOperationId: true,
-      defaultModelsExpandDepth: 1,
-      defaultModelExpandDepth: 1,
-      docExpansion: "list",
-      filter: false,
-      tryItOutEnabled: true,
-    };
-  }
-
-  return {
-    path: swagger.path ?? DEFAULT_SWAGGER_PATH,
-    title: swagger.title ?? `${infoTitle} Swagger UI`,
-    assetBaseUrl: swagger.assetBaseUrl ?? DEFAULT_SWAGGER_ASSET_BASE,
-    layout: swagger.layout ?? "BaseLayout",
-    persistAuthorization: swagger.persistAuthorization ?? true,
-    displayOperationId: swagger.displayOperationId ?? true,
-    defaultModelsExpandDepth: swagger.defaultModelsExpandDepth ?? 1,
-    defaultModelExpandDepth: swagger.defaultModelExpandDepth ?? 1,
-    docExpansion: swagger.docExpansion ?? "list",
-    filter: swagger.filter ?? false,
-    tryItOutEnabled: swagger.tryItOutEnabled ?? true,
-  };
-}
-
-function createSwaggerHtml(
-  documentPath: string,
-  swagger: ResolvedSwaggerOptions
-): string {
-  const escapedTitle = escapeHtml(swagger.title);
-  const escapedAssetBaseUrl = escapeHtml(swagger.assetBaseUrl);
-  const swaggerConfig = {
-    url: documentPath,
-    dom_id: "#swagger-ui",
-    deepLinking: true,
-    persistAuthorization: swagger.persistAuthorization,
-    displayOperationId: swagger.displayOperationId,
-    defaultModelsExpandDepth: swagger.defaultModelsExpandDepth,
-    defaultModelExpandDepth: swagger.defaultModelExpandDepth,
-    docExpansion: swagger.docExpansion,
-    filter: swagger.filter,
-    tryItOutEnabled: swagger.tryItOutEnabled,
-    layout: swagger.layout,
-  };
-  const usesStandaloneLayout = swagger.layout === "StandaloneLayout";
-  const standalonePresetScript = usesStandaloneLayout
-    ? `\n    <script src="${escapedAssetBaseUrl}/swagger-ui-standalone-preset.js"></script>`
-    : "";
-  const standalonePresets = usesStandaloneLayout
-    ? `,
-        presets: [
-          SwaggerUIBundle.presets.apis,
-          SwaggerUIStandalonePreset,
-        ]`
-    : "";
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="SwaggerUI" />
-    <title>${escapedTitle}</title>
-    <link rel="stylesheet" href="${escapedAssetBaseUrl}/swagger-ui.css" />
-  </head>
-  <body>
-    <div id="swagger-ui"></div>
-    <script src="${escapedAssetBaseUrl}/swagger-ui-bundle.js"></script>
-    ${standalonePresetScript}
-    <script>
-      window.onload = () => {
-        window.ui = SwaggerUIBundle({
-          ...${JSON.stringify(swaggerConfig)}${standalonePresets}
-        });
-      };
-    </script>
-  </body>
-</html>`;
-}
-
 export function openapi(
   options: OpenAPIPluginOptions
 ): BunRPCPlugin<
@@ -566,18 +218,18 @@ export function openapi(
       responses: (responses) => ({ responses }),
     },
     setup: ({ options: pluginOptions, procedures }) => {
-      const httpProcedures = procedures.filter(
+      const documentProcedures = procedures.filter(
         (procedure) =>
           procedure.httpExposed && procedure.meta?.openapi !== false
       );
       const documentPath = pluginOptions.documentPath ?? DEFAULT_DOCUMENT_PATH;
       const outputSchemaRegistry = createOutputSchemaRegistry(
-        httpProcedures,
+        documentProcedures,
         pluginOptions.components
       );
-      const paths = httpProcedures.reduce<OpenAPIObject["paths"]>(
-        (acc, procedure) => {
-          acc[procedure.fullPath] = {
+      const paths = documentProcedures.reduce<OpenAPIObject["paths"]>(
+        (documentPaths, procedure) => {
+          documentPaths[procedure.fullPath] = {
             post: createOperation(
               procedure.path,
               procedure.inputSchema,
@@ -589,7 +241,7 @@ export function openapi(
             ),
           };
 
-          return acc;
+          return documentPaths;
         },
         {}
       );

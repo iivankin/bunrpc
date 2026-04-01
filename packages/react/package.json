@@ -1,6 +1,6 @@
 {
   "name": "@bunrpc/react",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "React Query integration for @bunrpc/core",
   "license": "Apache-2.0",
   "repository": {

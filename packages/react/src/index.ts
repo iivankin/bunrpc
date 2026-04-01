@@ -1,286 +1,42 @@
 import {
-  BUNRPC_CLIENT_REQUEST_META,
   type ClientConfig,
-  type ClientOperationType,
   type ClientRequestOptions,
   createClient,
   createRpcError,
   isRpcError,
-  type RpcError,
 } from "@bunrpc/core";
 import {
-  type AnyProcedure,
   createSystemError,
-  type ProcedureClientError,
-  type ProcedureHttpExposed,
-  type ProcedureInput,
-  type ProcedureOutput,
-  type Router,
   type RpcErrorUnion,
   type RpcResult,
 } from "@bunrpc/core/types";
-import type {
-  InfiniteData,
-  QueryKey,
-  UseInfiniteQueryOptions,
-  UseInfiniteQueryResult,
-  UseMutationOptions,
-  UseMutationResult,
-  UseQueryOptions,
-  UseQueryResult,
-} from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
 import {
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import type {
+  InferQueryClient,
+  InfiniteQueryOptions,
+  MutationCallOptions,
+  MutationOptions,
+  MutationVariables,
+  QueryClientRouter,
+  QueryHooks,
+  QueryOptions,
+} from "./query-client-types";
+import {
+  buildInfiniteQueryInput,
+  buildMutationVariables,
+  createPathTraversalError,
+  isQueryOptions,
+  splitMutationCallOptions,
+  withOperationType,
+} from "./query-client-utils";
 
-// ============================================================================
-// Types
-// ============================================================================
-
-type QueryOptions<TOutput, TError> = Omit<
-  UseQueryOptions<TOutput, TError, TOutput, QueryKey>,
-  "queryKey" | "queryFn"
->;
-
-type MutationOptions<TInput, TOutput, TError> = Omit<
-  UseMutationOptions<TOutput, TError, TInput>,
-  "mutationFn"
->;
-
-interface MutationVariables<TInput> {
-  input: TInput;
-  requestOptions?: ClientRequestOptions;
-}
-
-type InternalMutationResult<TInput, TOutput, TError> = UseMutationResult<
-  TOutput,
-  TError,
-  MutationVariables<TInput>
->;
-
-type InternalMutationCallOptions<TInput, TOutput, TError> = NonNullable<
-  Parameters<InternalMutationResult<TInput, TOutput, TError>["mutate"]>[1]
->;
-
-type PublicMutationCallOptions<TInput, TOutput, TError> = NonNullable<
-  Parameters<UseMutationResult<TOutput, TError, TInput>["mutate"]>[1]
->;
-
-type MutationCallOptions<TInput, TOutput, TError> = PublicMutationCallOptions<
-  TInput,
-  TOutput,
-  TError
-> &
-  ClientRequestOptions;
-
-type DistributiveOmit<T, TKey extends keyof any> = T extends unknown
-  ? Omit<T, TKey>
-  : never;
-
-type Override<T, TOverrides> = DistributiveOmit<T, keyof TOverrides> &
-  TOverrides;
-
-type MutationResult<TInput, TOutput, TError> = Override<
-  InternalMutationResult<TInput, TOutput, TError>,
-  {
-    mutate: TInput extends undefined
-      ? (
-          input?: undefined,
-          options?: MutationCallOptions<TInput, TOutput, TError>
-        ) => void
-      : (
-          input: TInput,
-          options?: MutationCallOptions<TInput, TOutput, TError>
-        ) => void;
-    mutateAsync: TInput extends undefined
-      ? (
-          input?: undefined,
-          options?: MutationCallOptions<TInput, TOutput, TError>
-        ) => Promise<TOutput>
-      : (
-          input: TInput,
-          options?: MutationCallOptions<TInput, TOutput, TError>
-        ) => Promise<TOutput>;
-    variables: TInput | undefined;
-  }
->;
-
-type InfiniteQueryOptions<TOutput, TError, TPageParam> = Omit<
-  UseInfiniteQueryOptions<
-    TOutput,
-    TError,
-    InfiniteData<TOutput, TPageParam>,
-    QueryKey,
-    TPageParam
-  >,
-  "queryKey" | "queryFn" | "initialPageParam" | "getNextPageParam"
-> & {
-  initialCursor?: TPageParam;
-  getNextCursor: NonNullable<
-    UseInfiniteQueryOptions<
-      TOutput,
-      TError,
-      InfiniteData<TOutput, TPageParam>,
-      QueryKey,
-      TPageParam
-    >["getNextPageParam"]
-  >;
-};
-
-type CursorPageParam<TInput> = TInput extends { cursor?: infer TCursor }
-  ? TCursor | undefined
-  : never;
-
-type InfiniteQueryHook<TInput, TOutput, TErrorPayload extends RpcErrorUnion> =
-  TInput extends Record<string, unknown>
-    ? "cursor" extends keyof TInput
-      ? (
-          input: Omit<TInput, "cursor">,
-          options: InfiniteQueryOptions<
-            TOutput,
-            RpcError<TErrorPayload>,
-            CursorPageParam<TInput>
-          >
-        ) => UseInfiniteQueryResult<
-          InfiniteData<TOutput, CursorPageParam<TInput>>,
-          RpcError<TErrorPayload>
-        >
-      : never
-    : never;
-
-interface QueryHooks<TInput, TOutput, TErrorPayload extends RpcErrorUnion> {
-  getQueryKey: TInput extends undefined
-    ? () => QueryKey
-    : (input: TInput) => QueryKey;
-
-  useInfiniteQuery: InfiniteQueryHook<TInput, TOutput, TErrorPayload>;
-
-  useMutation: (
-    options?: MutationOptions<TInput, TOutput, RpcError<TErrorPayload>>
-  ) => MutationResult<TInput, TOutput, RpcError<TErrorPayload>>;
-  useQuery: TInput extends undefined
-    ? (
-        options?: QueryOptions<TOutput, RpcError<TErrorPayload>>
-      ) => UseQueryResult<TOutput, RpcError<TErrorPayload>>
-    : (
-        input: TInput,
-        options?: QueryOptions<TOutput, RpcError<TErrorPayload>>
-      ) => UseQueryResult<TOutput, RpcError<TErrorPayload>>;
-}
-
-type InferQueryClient<T extends object> = {
-  [K in keyof T as T[K] extends AnyProcedure
-    ? ProcedureHttpExposed<T[K]> extends false
-      ? never
-      : K
-    : K]: T[K] extends AnyProcedure
-    ? QueryHooks<
-        ProcedureInput<T[K]>,
-        ProcedureOutput<T[K]>,
-        ProcedureClientError<T[K]>
-      >
-    : T[K] extends object
-      ? InferQueryClient<T[K]>
-      : never;
-};
-
-// ============================================================================
-// Implementation
-// ============================================================================
-
-function createPathTraversalError(pathParts: string[]): RpcError {
-  return createRpcError(
-    createSystemError(
-      "BAD_RESPONSE",
-      500,
-      `Invalid procedure path: ${pathParts.join(".") || "(root)"}`
-    )
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function buildInfiniteQueryInput(
-  input: unknown,
-  pageParam: unknown
-): Record<string, unknown> {
-  if (isRecord(input)) {
-    return { ...input, cursor: pageParam };
-  }
-
-  throw new Error(
-    "useInfiniteQuery requires object input with optional `cursor`"
-  );
-}
-
-function buildMutationVariables<TInput>(
-  input: TInput,
-  requestOptions?: ClientRequestOptions
-): MutationVariables<TInput> {
-  return requestOptions === undefined ? { input } : { input, requestOptions };
-}
-
-function splitMutationCallOptions<TInput, TOutput, TError>(
-  options?: MutationCallOptions<TInput, TOutput, TError>
-): {
-  requestOptions?: ClientRequestOptions;
-  mutateOptions?: InternalMutationCallOptions<TInput, TOutput, TError>;
-} {
-  if (!options) {
-    return {};
-  }
-
-  const { headers, signal, onSuccess, onError, onSettled, ...mutateOptions } =
-    options;
-
-  const wrappedMutateOptions: InternalMutationCallOptions<
-    TInput,
-    TOutput,
-    TError
-  > = {
-    ...mutateOptions,
-    onSuccess: onSuccess
-      ? (data, variables, onMutateResult, context) =>
-          onSuccess(data, variables.input, onMutateResult, context)
-      : undefined,
-    onError: onError
-      ? (error, variables, onMutateResult, context) =>
-          onError(error, variables.input, onMutateResult, context)
-      : undefined,
-    onSettled: onSettled
-      ? (data, error, variables, onMutateResult, context) =>
-          onSettled(data, error, variables.input, onMutateResult, context)
-      : undefined,
-  };
-
-  return {
-    requestOptions:
-      headers === undefined && signal === undefined
-        ? undefined
-        : { headers, signal },
-    mutateOptions:
-      Object.keys(wrappedMutateOptions).length === 0
-        ? undefined
-        : wrappedMutateOptions,
-  };
-}
-
-function withOperationType(
-  requestOptions: ClientRequestOptions | undefined,
-  operationType: ClientOperationType
-): ClientRequestOptions {
-  return {
-    ...(requestOptions ?? {}),
-    [BUNRPC_CLIENT_REQUEST_META]: { operationType },
-  };
-}
-
-export function createQueryClient<TRouter extends Router>(
+export function createQueryClient<TRouter extends QueryClientRouter>(
   config: ClientConfig = {}
 ): InferQueryClient<TRouter> {
   const safeClient = createClient<TRouter>(config) as Record<string, unknown>;
@@ -342,25 +98,24 @@ export function createQueryClient<TRouter extends Router>(
   }
 
   function buildQueryKey(pathParts: string[], input?: unknown): QueryKey {
-    if (input === undefined) {
-      return pathParts;
-    }
-
-    return [...pathParts, input];
+    return input === undefined ? pathParts : [...pathParts, input];
   }
 
   function createProxy(pathParts: string[]): unknown {
     const hooks = {
       useQuery: (
         inputOrOptions?: unknown,
-        maybeOptions?: QueryOptions<unknown, RpcError<RpcErrorUnion>>
+        maybeOptions?: QueryOptions<unknown, ReturnType<typeof createRpcError>>
       ) => {
         const hasInput =
           maybeOptions !== undefined || !isQueryOptions(inputOrOptions);
         const input = hasInput ? inputOrOptions : undefined;
         const options = hasInput
           ? maybeOptions
-          : (inputOrOptions as QueryOptions<unknown, RpcError<RpcErrorUnion>>);
+          : (inputOrOptions as QueryOptions<
+              unknown,
+              ReturnType<typeof createRpcError>
+            >);
 
         return useQuery({
           queryKey: buildQueryKey(pathParts, input),
@@ -371,7 +126,11 @@ export function createQueryClient<TRouter extends Router>(
       },
 
       useMutation: (
-        options?: MutationOptions<unknown, unknown, RpcError<RpcErrorUnion>>
+        options?: MutationOptions<
+          unknown,
+          unknown,
+          ReturnType<typeof createRpcError>
+        >
       ) => {
         const { onMutate, onSuccess, onError, onSettled, ...mutationOptions } =
           options ?? {};
@@ -409,7 +168,7 @@ export function createQueryClient<TRouter extends Router>(
             mutationCallOptions?: MutationCallOptions<
               unknown,
               unknown,
-              RpcError<RpcErrorUnion>
+              ReturnType<typeof createRpcError>
             >
           ) => {
             const { requestOptions, mutateOptions } =
@@ -425,7 +184,7 @@ export function createQueryClient<TRouter extends Router>(
             mutationCallOptions?: MutationCallOptions<
               unknown,
               unknown,
-              RpcError<RpcErrorUnion>
+              ReturnType<typeof createRpcError>
             >
           ) => {
             const { requestOptions, mutateOptions } =
@@ -444,7 +203,7 @@ export function createQueryClient<TRouter extends Router>(
         input: unknown,
         options: InfiniteQueryOptions<
           unknown,
-          RpcError<RpcErrorUnion>,
+          ReturnType<typeof createRpcError>,
           TPageParam
         >
       ) => {
@@ -479,31 +238,6 @@ export function createQueryClient<TRouter extends Router>(
   }
 
   return createProxy([]) as InferQueryClient<TRouter>;
-}
-
-function isQueryOptions(obj: unknown): obj is QueryOptions<unknown, RpcError> {
-  if (!isRecord(obj)) return false;
-
-  const optionKeys = [
-    "enabled",
-    "staleTime",
-    "gcTime",
-    "refetchInterval",
-    "refetchOnWindowFocus",
-    "refetchOnMount",
-    "refetchOnReconnect",
-    "retry",
-    "retryDelay",
-    "select",
-    "placeholderData",
-    "initialData",
-    "initialDataUpdatedAt",
-    "networkMode",
-    "meta",
-    "throwOnError",
-  ];
-
-  return optionKeys.some((key) => key in obj);
 }
 
 export function useRpcUtils<TRouter extends object>(

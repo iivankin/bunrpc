@@ -2,6 +2,7 @@ import { parseErrorPayload } from "./error-payload";
 import {
   BUNRPC_CLIENT_REQUEST_META,
   BUNRPC_RAW_RESPONSE_HEADER,
+  type ClientHeaders,
   type ClientOperationType,
   type ClientRequestOptions,
   createSystemError,
@@ -22,9 +23,7 @@ export interface ClientConfig {
   /** Custom fetch function */
   fetch?: FetchFn;
   /** Headers to include in all requests */
-  headers?:
-    | Record<string, string>
-    | (() => Record<string, string> | Promise<Record<string, string>>);
+  headers?: ClientHeaders | (() => ClientHeaders | Promise<ClientHeaders>);
   /** Pretty request/response console logging (default: true outside production) */
   log?: boolean;
 }
@@ -230,6 +229,32 @@ function logClientResponse(event: ClientLogEvent): void {
   logClientEvent(event, "response");
 }
 
+function mergeHeaders(...sources: Array<ClientHeaders | undefined>): Headers {
+  const mergedHeaders = new Headers();
+
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+
+    const resolvedHeaders = new Headers(source);
+    resolvedHeaders.forEach((value, key) => {
+      mergedHeaders.set(key, value);
+    });
+  }
+
+  return mergedHeaders;
+}
+
+function toHeaderRecord(headers: Headers): Record<string, string> | undefined {
+  const entries = Array.from(headers.entries());
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(entries);
+}
+
 // ============================================================================
 // Client
 // ============================================================================
@@ -283,10 +308,10 @@ export function createClient<TRouter extends Router>(
       return result;
     };
 
-    let requestHeaders: Record<string, string>;
+    let defaultHeaders: ClientHeaders;
     try {
-      requestHeaders =
-        typeof headers === "function" ? await headers() : { ...headers };
+      defaultHeaders =
+        typeof headers === "function" ? await headers() : headers;
     } catch (error) {
       return finalize({
         ok: false,
@@ -301,12 +326,8 @@ export function createClient<TRouter extends Router>(
       });
     }
 
-    const customHeaders = {
-      ...requestHeaders,
-      ...requestOptions?.headers,
-    };
-    loggedCustomHeaders =
-      Object.keys(customHeaders).length === 0 ? undefined : customHeaders;
+    const customHeaders = mergeHeaders(defaultHeaders, requestOptions?.headers);
+    loggedCustomHeaders = toHeaderRecord(customHeaders);
 
     if (shouldLog) {
       logClientRequest({
@@ -319,12 +340,11 @@ export function createClient<TRouter extends Router>(
       });
     }
 
+    customHeaders.set("Content-Type", "application/json");
+
     const options: RequestInit = {
       method: "POST",
-      headers: {
-        ...customHeaders,
-        "Content-Type": "application/json",
-      },
+      headers: customHeaders,
       signal: requestOptions?.signal,
     };
 

@@ -112,14 +112,13 @@ describe("@bunrpc/openapi", () => {
     type OpenAPIArgs = Parameters<typeof publicProcedure.openapi>;
     type DescriptionArgs = Parameters<typeof publicProcedure.description>;
     type ResponsesArgs = Parameters<typeof publicProcedure.responses>;
-    const assertOpenAPIArgs: Expect<Equal<OpenAPIArgs, [enabled?: boolean]>> =
-      true;
-    const assertDescriptionArgs: Expect<
+    type _AssertOpenAPIArgs = Expect<Equal<OpenAPIArgs, [enabled?: boolean]>>;
+    type _AssertDescriptionArgs = Expect<
       Equal<DescriptionArgs, [description: string]>
-    > = true;
-    const assertResponsesArgs: Expect<
+    >;
+    type _AssertResponsesArgs = Expect<
       Equal<ResponsesArgs, [responses: OpenAPIResponsesObject]>
-    > = true;
+    >;
 
     const chatRouter = b.router({
       list: authProcedure
@@ -156,10 +155,6 @@ describe("@bunrpc/openapi", () => {
       })
     );
     const document = rpc.plugins.openapi.document;
-
-    expect(assertOpenAPIArgs).toBe(true);
-    expect(assertDescriptionArgs).toBe(true);
-    expect(assertResponsesArgs).toBe(true);
 
     expect(document.info).toEqual({
       title: "Test API",

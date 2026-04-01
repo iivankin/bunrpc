@@ -197,16 +197,13 @@ describe("@bunrpc/core", () => {
     type CreateResult = Awaited<ReturnType<typeof client.chat.create>>;
     type CreateData = Extract<CreateResult, { ok: true }>["data"];
     type MeParams = Parameters<typeof client.chat.me>;
-    const assertClientOutput: Expect<Equal<CreateData, { id: string }>> = true;
-    const assertMeParams: Expect<
+    type _AssertClientOutput = Expect<Equal<CreateData, { id: string }>>;
+    type _AssertMeParams = Expect<
       Equal<
         MeParams,
         [input?: undefined, requestOptions?: ClientRequestOptions]
       >
-    > = true;
-
-    expect(assertClientOutput).toBe(true);
-    expect(assertMeParams).toBe(true);
+    >;
 
     const rpc = b.createHttpRoutes(appRouter);
     const okResponse = await rpc.routes["/api/chat/create"]!(
@@ -366,10 +363,10 @@ describe("@bunrpc/core", () => {
 
     type DescriptionArgs = Parameters<typeof b.publicProcedure.description>;
     type ToolArgs = Parameters<typeof b.publicProcedure.tool>;
-    const assertDescriptionArgs: Expect<
+    type _AssertDescriptionArgs = Expect<
       Equal<DescriptionArgs, [description: string]>
-    > = true;
-    const assertToolArgs: Expect<Equal<ToolArgs, [tool: string]>> = true;
+    >;
+    type _AssertToolArgs = Expect<Equal<ToolArgs, [tool: string]>>;
 
     const appRouter = b.router({
       chat: b.router({
@@ -385,8 +382,6 @@ describe("@bunrpc/core", () => {
     });
 
     const rpc = b.createHttpRoutes(appRouter);
-    expect(assertDescriptionArgs).toBe(true);
-    expect(assertToolArgs).toBe(true);
     expect(rpc.plugins.openapi.document).toEqual({
       path: "/openapi.json",
       descriptions: ["List chats", "tools/create"],
@@ -455,7 +450,9 @@ describe("@bunrpc/core", () => {
 
   test("client logging uses tRPC-style labels and payloads", async () => {
     await withMockedConsole(async ({ error, log }) => {
-      const fetchMock = mock(async () => Response.json({ ok: true }));
+      const fetchMock = mock(async (_url: string, _init?: RequestInit) =>
+        Response.json({ ok: true })
+      );
       const client = createClient<{
         ping: {
           _type: "procedure";
@@ -467,15 +464,15 @@ describe("@bunrpc/core", () => {
         baseUrl: "http://localhost/api",
         fetch: fetchMock,
         log: true,
-        headers: {
+        headers: new Headers({
           authorization: "Bearer demo-user",
-        },
+        }),
       });
 
       const result = await client.ping(undefined, {
-        headers: {
+        headers: new Headers({
           "x-trace-id": "trace_1",
-        },
+        }),
         [BUNRPC_CLIENT_REQUEST_META]: {
           operationType: "query",
         },
@@ -490,6 +487,14 @@ describe("@bunrpc/core", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(log).toHaveBeenCalledTimes(2);
       expect(error).not.toHaveBeenCalled();
+
+      const fetchOptions = fetchMock.mock.calls[0]?.[1] as
+        | RequestInit
+        | undefined;
+      const requestHeaders = new Headers(fetchOptions?.headers);
+      expect(requestHeaders.get("authorization")).toBe("Bearer demo-user");
+      expect(requestHeaders.get("x-trace-id")).toBe("trace_1");
+      expect(requestHeaders.get("content-type")).toBe("application/json");
 
       expect(String(log.mock.calls[0]?.[0])).toContain(">> query #1 ping");
       expect(log.mock.calls[0]?.[1]).toEqual({

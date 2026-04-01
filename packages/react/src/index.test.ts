@@ -57,29 +57,19 @@ test("query client exposes useInfiniteQuery helper", () => {
     ? true
     : false;
 
-  const assertInputArg: Expect<Equal<InputArg, { limit: number }>> = true;
-  const assertNoInitialPageParam: Expect<Equal<HasInitialPageParam, false>> =
-    true;
-  const assertNoGetNextPageParam: Expect<Equal<HasGetNextPageParam, false>> =
-    true;
-  const assertHasInitialCursor: Expect<Equal<HasInitialCursor, true>> = true;
-  const assertHasGetNextCursor: Expect<Equal<HasGetNextCursor, true>> = true;
-  const assertCursorParam: Expect<
+  type _AssertInputArg = Expect<Equal<InputArg, { limit: number }>>;
+  type _AssertNoInitialPageParam = Expect<Equal<HasInitialPageParam, false>>;
+  type _AssertNoGetNextPageParam = Expect<Equal<HasGetNextPageParam, false>>;
+  type _AssertHasInitialCursor = Expect<Equal<HasInitialCursor, true>>;
+  type _AssertHasGetNextCursor = Expect<Equal<HasGetNextCursor, true>>;
+  type _AssertCursorParam = Expect<
     Equal<OptionsArg["initialCursor"], string | undefined>
-  > = true;
-  const getNextCursor: OptionsArg["getNextCursor"] = (lastPage) =>
+  >;
+  type _AssertStrictCursorOnly = Expect<
+    Equal<typeof rpc.chat.byPage.useInfiniteQuery, never>
+  >;
+  const _getNextCursor: OptionsArg["getNextCursor"] = (lastPage) =>
     lastPage.nextCursor;
-  const _strictCursorOnly: never = rpc.chat.byPage.useInfiniteQuery;
-
-  expect(
-    assertInputArg &&
-      assertNoInitialPageParam &&
-      assertNoGetNextPageParam &&
-      assertHasInitialCursor &&
-      assertHasGetNextCursor &&
-      assertCursorParam &&
-      !!getNextCursor
-  ).toBe(true);
 });
 
 test("mutation client accepts request options on mutate calls", () => {
@@ -106,15 +96,15 @@ test("mutation client accepts request options on mutate calls", () => {
     ? true
     : false;
   type HasHeaders = MutateOptions extends {
-    headers?: Record<string, string>;
+    headers?: Headers | Record<string, string>;
   }
     ? true
     : false;
 
-  const assertMutateInput: Expect<Equal<MutateInput, { title: string }>> = true;
-  const assertSignal: Expect<Equal<HasSignal, true>> = true;
-  const assertHeaders: Expect<Equal<HasHeaders, true>> = true;
-  const mutateOptions: MutateOptions = {
+  type _AssertMutateInput = Expect<Equal<MutateInput, { title: string }>>;
+  type _AssertSignal = Expect<Equal<HasSignal, true>>;
+  type _AssertHeaders = Expect<Equal<HasHeaders, true>>;
+  const _mutateOptions: MutateOptions = {
     signal: new AbortController().signal,
     headers: { Authorization: "Bearer token" },
     onSuccess: (_data, variables) => {
@@ -122,7 +112,7 @@ test("mutation client accepts request options on mutate calls", () => {
       return title;
     },
   };
-  const mutateAsyncOptions: MutateAsyncOptions = {
+  const _mutateAsyncOptions: MutateAsyncOptions = {
     signal: new AbortController().signal,
     onError: (_error, variables) => {
       const title: string = variables.title;
@@ -130,16 +120,10 @@ test("mutation client accepts request options on mutate calls", () => {
     },
   };
 
-  expect(
-    assertMutateInput &&
-      assertSignal &&
-      assertHeaders &&
-      !!mutateOptions &&
-      !!mutateAsyncOptions
-  ).toBe(true);
+  expect(typeof rpc.chat.create.useMutation).toBe("function");
 });
 
-test("mutation result narrows data on isSuccess", () => {
+{
   type EmitProcedure = Procedure<
     Record<string, never>,
     { prompt: string },
@@ -155,23 +139,21 @@ test("mutation result narrows data on isSuccess", () => {
 
   type Mutation = ReturnType<typeof rpc.emit.run.useMutation>;
 
-  const readRunId = (mutation: Mutation): string | null => {
+  const _readRunId = (mutation: Mutation): string | null => {
     if (mutation.isSuccess) {
       return mutation.data.runId;
     }
 
     return null;
   };
+}
 
-  expect(readRunId as unknown).toBeDefined();
-});
-
-test("rpc error narrows by top-level source/code", () => {
+{
   type ErrorUnion =
     | AppRpcError<"TITLE_TOO_LONG", { max: number }>
     | SystemRpcError<"BAD_RESPONSE">;
 
-  const readMax = (error: RpcError<ErrorUnion>): number | null => {
+  const _readMax = (error: RpcError<ErrorUnion>): number | null => {
     if (error.source === "app" && error.code === "TITLE_TOO_LONG") {
       const code: "TITLE_TOO_LONG" = error.code;
       return (error.details?.max ?? 0) + (code === "TITLE_TOO_LONG" ? 0 : 1);
@@ -179,6 +161,4 @@ test("rpc error narrows by top-level source/code", () => {
 
     return null;
   };
-
-  expect(readMax as unknown).toBeDefined();
-});
+}

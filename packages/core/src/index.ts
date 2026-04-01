@@ -18,6 +18,7 @@ export type {
   BunRPCPluginSetupContext,
   BunRPCPluginSetupResult,
   BunRPCRouteHandler,
+  ClientHeaders,
   ClientOperationType,
   ClientRequestMeta,
   ClientRequestOptions,

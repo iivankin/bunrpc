@@ -246,9 +246,9 @@ describe("@bunrpc/mcp", () => {
 
     const publicProcedure = b.publicProcedure;
     type ToolArgs = Parameters<typeof publicProcedure.tool>;
-    const assertToolArgs: Expect<
+    type _AssertToolArgs = Expect<
       Equal<ToolArgs, [options?: string | MCPToolOptions | undefined]>
-    > = true;
+    >;
 
     const authProcedure = publicProcedure.use((ctx) => {
       if (
@@ -262,10 +262,9 @@ describe("@bunrpc/mcp", () => {
         });
       }
 
-      const assertHeaderAuthData: Expect<
+      type _AssertHeaderAuthData = Expect<
         Equal<typeof ctx.mcp.auth.data, { userId: string; tenantId: string }>
-      > = true;
-      expect(assertHeaderAuthData).toBe(true);
+      >;
 
       return ctx.next({
         userId: ctx.mcp.auth.data.userId,
@@ -304,7 +303,6 @@ describe("@bunrpc/mcp", () => {
     });
 
     const rpc = b.createHttpRoutes(router);
-    expect(assertToolArgs).toBe(true);
     expect(rpc.plugins.mcp.tools).toEqual([
       {
         name: "docs_query_all",
@@ -503,10 +501,9 @@ describe("@bunrpc/mcp", () => {
               });
             }
 
-            const assertQueryAuthData: Expect<
+            type _AssertQueryAuthData = Expect<
               Equal<typeof ctx.mcp.auth.data, { apiTokenId: string }>
-            > = true;
-            expect(assertQueryAuthData).toBe(true);
+            >;
 
             return {
               apiTokenId: ctx.mcp.auth.data.apiTokenId,
@@ -637,12 +634,11 @@ describe("@bunrpc/mcp", () => {
 
     const rpc = b.createHttpRoutes(router);
     type ClientDocs = InferClient<typeof router>["docs"];
-    const assertClientHidesMcpOnlyRoute: Expect<
+    type _AssertClientHidesMcpOnlyRoute = Expect<
       Equal<"queryAll" extends keyof ClientDocs ? true : false, false>
-    > = true;
+    >;
 
     expect(rpc.routes["/api/docs/queryAll"]).toBeUndefined();
-    expect(assertClientHidesMcpOnlyRoute).toBe(true);
     expect(rpc.plugins.mcp.tools).toEqual([
       {
         name: "docs_query_all",
