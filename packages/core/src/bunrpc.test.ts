@@ -272,6 +272,110 @@ describe("@bunrpc/core", () => {
     ).toBe(true);
   });
 
+  test("supports overriding route path and method for generated server routes", async () => {
+    const b = initBunRpc({ prefix: "/rpc" });
+    const appRouter = b.router({
+      health: b.publicProcedure
+        .route("healthz", "get")
+        .handler(() => ({ ok: true })),
+    });
+
+    const rpc = b.createHttpRoutes(appRouter);
+    expect(rpc.routes["/rpc/healthz"]).toBeDefined();
+    expect(rpc.routes["/rpc/health"]).toBeUndefined();
+
+    const response = await rpc.routes["/rpc/healthz"]!(
+      new Request("http://localhost/rpc/healthz", {
+        method: "GET",
+      }) as BunRequest<string>,
+      {} as never
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  test("dispatches procedures that share a path by HTTP method", async () => {
+    const b = initBunRpc();
+    const appRouter = b.router({
+      session: b.router({
+        read: b.publicProcedure
+          .route("/session", "GET")
+          .handler(() => ({ method: "GET" })),
+        write: b.publicProcedure
+          .route("/session", "POST")
+          .handler(() => ({ method: "POST" })),
+      }),
+    });
+
+    const rpc = b.createHttpRoutes(appRouter);
+    expect(Object.keys(rpc.routes)).toEqual(["/session"]);
+
+    const getResponse = await rpc.routes["/session"]!(
+      new Request("http://localhost/session", {
+        method: "GET",
+      }) as BunRequest<string>,
+      {} as never
+    );
+    const postResponse = await rpc.routes["/session"]!(
+      new Request("http://localhost/session", {
+        method: "POST",
+      }) as BunRequest<string>,
+      {} as never
+    );
+    const putResponse = await rpc.routes["/session"]!(
+      new Request("http://localhost/session", {
+        method: "PUT",
+      }) as BunRequest<string>,
+      {} as never
+    );
+
+    expect(await getResponse.json()).toEqual({ method: "GET" });
+    expect(await postResponse.json()).toEqual({ method: "POST" });
+    expect(putResponse.status).toBe(405);
+    expect(putResponse.headers.get("Allow")).toBe("GET, POST");
+    expect(await putResponse.json()).toMatchObject({
+      code: "METHOD_NOT_ALLOWED",
+      source: "system",
+    });
+  });
+
+  test("types req.params from .route() like Bun.serve", () => {
+    const b = initBunRpc();
+    const procedure = b.publicProcedure
+      .route("/orgs/:orgId/repos/:repoId")
+      .use(({ req, next }) => {
+        const orgId: string = req.params.orgId;
+        const repoId: string = req.params.repoId;
+
+        return next({
+          orgId,
+          repoId,
+        });
+      })
+      .handler(({ req, orgId, repoId }) => {
+        const params = req.params;
+
+        type Params = typeof params;
+        type _AssertOrgId = Expect<Equal<Params["orgId"], string>>;
+        type _AssertRepoId = Expect<Equal<Params["repoId"], string>>;
+        type _AssertKeys = Expect<Equal<keyof Params, "orgId" | "repoId">>;
+
+        return {
+          orgId,
+          repoId,
+        };
+      });
+
+    type HandlerParams = Parameters<
+      typeof procedure.handler
+    >[0]["req"]["params"];
+    type _AssertHandlerOrgId = Expect<Equal<HandlerParams["orgId"], string>>;
+    type _AssertHandlerRepoId = Expect<Equal<HandlerParams["repoId"], string>>;
+
+    expect(typeof procedure.handler).toBe("function");
+  });
+
   test("passes through raw Response objects from handlers for direct HTTP streaming", async () => {
     const b = initBunRpc();
     const encoder = new TextEncoder();

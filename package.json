@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.10",
-    "lefthook": "2.1.4",
-    "ultracite": "7.4.0"
+    "lefthook": "2.1.5",
+    "ultracite": "7.4.3"
   }
 }

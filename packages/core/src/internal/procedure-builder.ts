@@ -1,9 +1,11 @@
+import type { BunRequest } from "bun";
 import type { StandardSchemaV1 } from "../standard-schema";
 import type { MaybePromise } from "../type-utils";
 import type {
   AnyBunRPCPlugin,
   AppRpcError,
   BaseContext,
+  BunRPCHttpMethodInput,
   InferSchemaOutput,
   PluginContextExtensions,
   PluginHandlerMethods,
@@ -18,6 +20,7 @@ import type {
   ProcedureOutputFromResult,
   ProcedurePluginEntry,
   ProcedureResponseFromResult,
+  ProcedureRouteDefinition,
   UnionToIntersection,
 } from "../types";
 import {
@@ -26,6 +29,7 @@ import {
   resolveHandlerMethodPatch,
   setProcedurePluginMeta,
 } from "./plugin-meta";
+import { createProcedureRouteDefinition } from "./procedure-routing";
 
 type NormalizeMiddlewareContext<TContext> = [TContext] extends [never]
   ? Record<string, never>
@@ -36,6 +40,13 @@ type NormalizeObject<TValue> = TValue extends object
       [TKey in keyof TValue]: TValue[TKey];
     }
   : Record<string, never>;
+
+type ReplaceBaseContextRequest<
+  TBaseContext extends BaseContext,
+  TPath extends string,
+> = Omit<TBaseContext, "req"> & {
+  req: BunRequest<TPath>;
+};
 
 type AppPluginContext<TPlugins extends readonly AnyBunRPCPlugin[]> = [
   TPlugins[number],
@@ -155,6 +166,16 @@ interface ProcedureBuilderBase<
   output<TSchema extends StandardSchemaV1>(
     schema: TSchema
   ): ProcedureBuilder<TContext, TBaseContext, TPlugins, TError, TSchema>;
+  route<TPath extends string>(
+    path: TPath,
+    method?: BunRPCHttpMethodInput
+  ): ProcedureBuilder<
+    TContext,
+    ReplaceBaseContextRequest<TBaseContext, TPath>,
+    TPlugins,
+    TError,
+    TOutputSchema
+  >;
   use<
     TContextExtension extends Record<string, unknown> = Record<string, never>,
     TNextError extends AppRpcError = never,
@@ -201,6 +222,17 @@ interface ProcedureBuilderWithInputBase<
     TInput,
     TError,
     TSchema
+  >;
+  route<TPath extends string>(
+    path: TPath,
+    method?: BunRPCHttpMethodInput
+  ): ProcedureBuilderWithInput<
+    TContext,
+    ReplaceBaseContextRequest<TBaseContext, TPath>,
+    TPlugins,
+    TInput,
+    TError,
+    TOutputSchema
   >;
 }
 
@@ -407,7 +439,8 @@ export function createProcedureBuilder<
   plugins: TPlugins,
   middlewares: RuntimeMiddleware[],
   pluginEntries: readonly ProcedurePluginEntry[] = [],
-  outputSchema?: TOutputSchema
+  outputSchema?: TOutputSchema,
+  route?: ProcedureRouteDefinition
 ): ProcedureBuilder<TContext, TBaseContext, TPlugins, TError, TOutputSchema> {
   const builder = {
     use<
@@ -431,8 +464,34 @@ export function createProcedureBuilder<
         plugins,
         [...middlewares, value as RuntimeMiddleware],
         pluginEntries,
-        outputSchema
+        outputSchema,
+        route
       ) as unknown;
+    },
+
+    route<TPath extends string>(
+      path: TPath,
+      method: BunRPCHttpMethodInput = "POST"
+    ): ProcedureBuilder<
+      TContext,
+      ReplaceBaseContextRequest<TBaseContext, TPath>,
+      TPlugins,
+      TError,
+      TOutputSchema
+    > {
+      return createProcedureBuilder<
+        TContext,
+        ReplaceBaseContextRequest<TBaseContext, TPath>,
+        TPlugins,
+        TError,
+        TOutputSchema
+      >(
+        plugins,
+        middlewares,
+        pluginEntries,
+        outputSchema,
+        createProcedureRouteDefinition(path, method)
+      );
     },
 
     input<TSchema extends StandardSchemaV1>(
@@ -462,9 +521,35 @@ export function createProcedureBuilder<
             TPlugins,
             TError,
             TNextOutputSchema
-          >(plugins, middlewares, pluginEntries, nextOutputSchema).input(
+          >(plugins, middlewares, pluginEntries, nextOutputSchema, route).input(
             schema
           );
+        },
+
+        route<TPath extends string>(
+          path: TPath,
+          method: BunRPCHttpMethodInput = "POST"
+        ): ProcedureBuilderWithInput<
+          TContext,
+          ReplaceBaseContextRequest<TBaseContext, TPath>,
+          TPlugins,
+          InferSchemaOutput<TSchema>,
+          TError,
+          TOutputSchema
+        > {
+          return createProcedureBuilder<
+            TContext,
+            ReplaceBaseContextRequest<TBaseContext, TPath>,
+            TPlugins,
+            TError,
+            TOutputSchema
+          >(
+            plugins,
+            middlewares,
+            pluginEntries,
+            outputSchema,
+            createProcedureRouteDefinition(path, method)
+          ).input(schema);
         },
 
         handler<
@@ -502,6 +587,7 @@ export function createProcedureBuilder<
             _output: {} as ProcedureResolvedOutput<TOutputSchema, TResult>,
             _error: {} as TError | ProcedureErrorFromResult<TResult>,
             _httpExposed: true,
+            _route: route,
           };
 
           setProcedurePluginMeta(procedure, pluginEntries);
@@ -523,7 +609,8 @@ export function createProcedureBuilder<
             plugins,
             middlewares,
             mergeProcedurePluginMeta(pluginEntries, pluginName, patch),
-            outputSchema
+            outputSchema,
+            route
           ).input(schema) as typeof inputBuilder,
         (pluginName, patch, httpExposed, fn) => {
           const procedure = createProcedureBuilder<
@@ -536,7 +623,8 @@ export function createProcedureBuilder<
             plugins,
             middlewares,
             mergeProcedurePluginMeta(pluginEntries, pluginName, patch),
-            outputSchema
+            outputSchema,
+            route
           )
             .input(schema)
             .handler(fn as never);
@@ -569,7 +657,7 @@ export function createProcedureBuilder<
         TPlugins,
         TError,
         TNextOutputSchema
-      >(plugins, middlewares, pluginEntries, nextOutputSchema);
+      >(plugins, middlewares, pluginEntries, nextOutputSchema, route);
     },
 
     handler<TResult extends ProcedureHandlerResultConstraint<TOutputSchema>>(
@@ -602,6 +690,7 @@ export function createProcedureBuilder<
         _output: {} as ProcedureResolvedOutput<TOutputSchema, TResult>,
         _error: {} as TError | ProcedureErrorFromResult<TResult>,
         _httpExposed: true,
+        _route: route,
       };
 
       setProcedurePluginMeta(procedure, pluginEntries);
@@ -623,7 +712,8 @@ export function createProcedureBuilder<
         plugins,
         middlewares,
         mergeProcedurePluginMeta(pluginEntries, pluginName, patch),
-        outputSchema
+        outputSchema,
+        route
       ) as typeof builder,
     (pluginName, patch, httpExposed, fn) => {
       const procedure = createProcedureBuilder<
@@ -636,7 +726,8 @@ export function createProcedureBuilder<
         plugins,
         middlewares,
         mergeProcedurePluginMeta(pluginEntries, pluginName, patch),
-        outputSchema
+        outputSchema,
+        route
       ).handler(fn as never);
 
       procedure._httpExposed = httpExposed as typeof procedure._httpExposed;

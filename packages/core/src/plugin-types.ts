@@ -1,5 +1,5 @@
 import type { BunRequest, Server } from "bun";
-import type { AnyProcedure } from "./procedure-types";
+import type { AnyProcedure, BunRPCHttpMethod } from "./procedure-types";
 import type { RpcResult } from "./rpc-types";
 import type { StandardSchemaV1 } from "./standard-schema";
 
@@ -160,6 +160,7 @@ export type PluginHandlerMethods<TPlugin extends AnyBunRPCPlugin> =
 export interface BunRPCPluginProcedureInfo<TMeta = never> {
   fullPath: string;
   httpExposed: boolean;
+  httpMethod: BunRPCHttpMethod;
   inputSchema?: StandardSchemaV1;
   meta?: TMeta;
   outputSchema?: StandardSchemaV1;

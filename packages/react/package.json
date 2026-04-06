@@ -1,6 +1,6 @@
 {
   "name": "@bunrpc/react",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "React Query integration for @bunrpc/core",
   "license": "Apache-2.0",
   "repository": {
@@ -34,14 +34,14 @@
     "prepublishOnly": "bun run typecheck && bun run test"
   },
   "dependencies": {
-    "@bunrpc/core": "^0.1.9"
+    "@bunrpc/core": "workspace:*"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5",
     "react": "^18 || ^19"
   },
   "devDependencies": {
-    "@tanstack/react-query": "5.95.2",
+    "@tanstack/react-query": "5.96.2",
     "@types/bun": "1.3.11",
     "react": "19.2.4",
     "typescript": "6.0.2"

@@ -261,4 +261,43 @@ describe("@bunrpc/openapi", () => {
     expect(swaggerHtml).toContain("Test API Docs");
     expect(swaggerHtml).toContain("persistAuthorization");
   });
+
+  test("uses overridden HTTP paths and methods in the generated document", () => {
+    const b = initBunRpc().use(
+      openapi({
+        info: {
+          title: "Route Override API",
+          version: "1.0.0",
+        },
+      })
+    );
+    const chatOutputSchema = createSingleStringFieldSchema("id", "Chat");
+    const appRouter = b.router({
+      chat: b.router({
+        list: b.publicProcedure
+          .route("/chats", "GET")
+          .summary("List chats")
+          .handler(() => ({ items: [] as string[] })),
+        create: b.publicProcedure
+          .route("/chats", "POST")
+          .input(createSingleStringFieldSchema("title"))
+          .output(chatOutputSchema)
+          .summary("Create chat")
+          .handler(({ input }) => ({ id: input.title })),
+      }),
+    });
+
+    const document = b.createHttpRoutes(appRouter).plugins.openapi.document;
+
+    expect(document.paths["/chats"]?.get).toMatchObject({
+      operationId: "chat.list",
+      summary: "List chats",
+    });
+    expect(document.paths["/chats"]?.post).toMatchObject({
+      operationId: "chat.create",
+      summary: "Create chat",
+    });
+    expect(document.paths["/api/chat/list"]).toBeUndefined();
+    expect(document.paths["/api/chat/create"]).toBeUndefined();
+  });
 });

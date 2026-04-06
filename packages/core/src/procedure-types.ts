@@ -14,8 +14,27 @@ export interface ProcedureMiddlewareMeta {
   type: "rpc";
 }
 
+export type BunRPCHttpMethod =
+  | "DELETE"
+  | "GET"
+  | "HEAD"
+  | "OPTIONS"
+  | "PATCH"
+  | "POST"
+  | "PUT"
+  | "TRACE";
+
+export type BunRPCHttpMethodInput =
+  | BunRPCHttpMethod
+  | Lowercase<BunRPCHttpMethod>;
+
+export interface ProcedureRouteDefinition {
+  method: BunRPCHttpMethod;
+  path: string;
+}
+
 export interface BaseContext {
-  req: BunRequest<string>;
+  req: BunRequest<any>;
   requestSource: string;
   server: Server<unknown>;
 }
@@ -48,6 +67,7 @@ export interface Procedure<
   _httpExposed: THttpExposed;
   _input: TInput;
   _output: TOutput;
+  _route?: ProcedureRouteDefinition;
   _type: "procedure";
   handler: (
     ctx: TContext & ProcedureHelpers & { input: TInput }

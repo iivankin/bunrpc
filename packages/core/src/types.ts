@@ -39,6 +39,8 @@ export type {
 export type {
   AnyProcedure,
   BaseContext,
+  BunRPCHttpMethod,
+  BunRPCHttpMethodInput,
   Procedure,
   ProcedureAppError,
   ProcedureHttpExposed,
@@ -46,6 +48,7 @@ export type {
   ProcedureMiddlewareMeta,
   ProcedureMiddlewareOptions,
   ProcedureOutput,
+  ProcedureRouteDefinition,
 } from "./procedure-types";
 export type {
   AnyProcedureNextResult,

@@ -10,6 +10,7 @@ const RESERVED_PROCEDURE_METHOD_NAMES = new Set([
   "input",
   "output",
   "handler",
+  "route",
 ]);
 
 const procedurePluginMetaStore = new WeakMap<

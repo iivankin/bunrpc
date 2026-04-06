@@ -53,7 +53,6 @@ mutation.mutate(
 ```
 
 `createQueryClient` forwards `log` to `@bunrpc/core/createClient`, so development request/response traces are enabled by default outside production.
-
 ## Infinite queries
 
 `useInfiniteQuery` is available for procedures whose input includes a `cursor` field.

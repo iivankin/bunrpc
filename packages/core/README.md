@@ -114,8 +114,12 @@ if (result.ok) {
 - `createHttpRoutes(router)` generates `Bun.serve()` handlers from a router created by `initBunRpc(...).router(...)`.
 - `.input(schema)` validates request payloads.
 - `.output(schema)` defines the success output contract and narrows handler return types.
+- `.route(path, method?)` overrides the generated HTTP path/method. Relative paths stay under your configured prefix, absolute paths bypass it.
 - `.use(middleware)` extends handler context.
 - `.handler(fn)` defines the procedure implementation.
+
+`.route(...)` only changes the generated HTTP/plugin surface. `createClient(...)` still calls the canonical RPC path derived from the router shape.
+When `.route(...)` uses Bun-style params like `"/users/:id"`, `ctx.req.params` is typed the same way as `Bun.serve()`.
 
 ## Plugin Model
 

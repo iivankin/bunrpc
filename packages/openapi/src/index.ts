@@ -5,8 +5,9 @@ import {
   isReferenceObject,
 } from "./json-schema";
 import type {
+  OpenAPIHttpMethod,
   OpenAPIObject,
-  OpenAPIPathItemObject,
+  OpenAPIOperationObject,
   OpenAPIPluginOptions,
   OpenAPIProcedureMeta,
   OpenAPIReferenceObject,
@@ -163,7 +164,7 @@ function createOperation(
   outputSchema: unknown | undefined,
   meta: OpenAPIProcedureMeta | undefined,
   defaultTags: OpenAPIPluginOptions["defaultTags"]
-): OpenAPIPathItemObject["post"] {
+): OpenAPIOperationObject {
   const extractedInputSchema = extractInputJSONSchema(inputSchema);
 
   return {
@@ -229,8 +230,19 @@ export function openapi(
       );
       const paths = documentProcedures.reduce<OpenAPIObject["paths"]>(
         (documentPaths, procedure) => {
+          const httpMethod =
+            procedure.httpMethod.toLowerCase() as OpenAPIHttpMethod;
+          const pathItem = documentPaths[procedure.fullPath] ?? {};
+
+          if (pathItem[httpMethod]) {
+            throw new Error(
+              `Duplicate OpenAPI operation for ${procedure.httpMethod} ${procedure.fullPath}`
+            );
+          }
+
           documentPaths[procedure.fullPath] = {
-            post: createOperation(
+            ...pathItem,
+            [httpMethod]: createOperation(
               procedure.path,
               procedure.inputSchema,
               outputSchemaRegistry.resolvedOutputSchemasByPath.get(

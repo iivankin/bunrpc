@@ -2,7 +2,6 @@ import type { BunRequest, Server } from "bun";
 import type { InitBunRpcOptions } from "../server-shared";
 import {
   type AnyBunRPCPlugin,
-  type AnyProcedure,
   type BunRPCRouteHandler,
   type BunRPCRoutes,
   createSystemError,
@@ -11,25 +10,44 @@ import {
 } from "../types";
 import { getProcedurePluginMeta } from "./plugin-meta";
 import { executeProcedure, markRawResponse } from "./procedure-execution";
-import { isProcedure } from "./router-metadata";
+import {
+  collectProcedures,
+  resolveProcedureHttpRoute,
+} from "./procedure-routing";
 
-function collectProcedures(
-  router: Router,
-  currentPath = ""
-): Array<{ path: string; procedure: AnyProcedure }> {
-  const procedures: Array<{ path: string; procedure: AnyProcedure }> = [];
-
-  for (const [key, value] of Object.entries(router)) {
-    const path = currentPath ? `${currentPath}/${key}` : key;
-
-    if (isProcedure(value)) {
-      procedures.push({ path, procedure: value });
-    } else if (typeof value === "object" && value !== null) {
-      procedures.push(...collectProcedures(value as Router, path));
+interface RegisteredRouteEntry {
+  methodHandlers: Map<
+    string,
+    {
+      handler: BunRPCRouteHandler;
+      source: string;
     }
-  }
+  >;
+  pathHandler?: {
+    handler: BunRPCRouteHandler;
+    source: string;
+  };
+}
 
-  return procedures;
+function createMethodNotAllowedResponse(entry: RegisteredRouteEntry): Response {
+  const allowedMethods = [...entry.methodHandlers.keys()].sort();
+  const allowedMethodsLabel =
+    allowedMethods.length > 0 ? allowedMethods.join(", ") : "none";
+  const error = createSystemError(
+    "METHOD_NOT_ALLOWED",
+    405,
+    `Method not allowed, allowed methods: ${allowedMethodsLabel}`
+  );
+
+  return Response.json(error, {
+    status: error.status,
+    headers:
+      allowedMethods.length > 0
+        ? {
+            Allow: allowedMethods.join(", "),
+          }
+        : undefined,
+  });
 }
 
 function registerRoute(
@@ -37,16 +55,65 @@ function registerRoute(
     string,
     (req: BunRequest<string>, server: Server<unknown>) => Promise<Response>
   >,
+  registeredRoutes: Map<string, RegisteredRouteEntry>,
   path: string,
   handler: BunRPCRouteHandler,
-  source: string
+  source: string,
+  method?: string
 ): void {
-  if (path in routes) {
+  let entry = registeredRoutes.get(path);
+
+  if (!entry) {
+    entry = {
+      methodHandlers: new Map(),
+    };
+    registeredRoutes.set(path, entry);
+    routes[path] = (req: BunRequest<string>, server: Server<unknown>) => {
+      if (entry?.pathHandler) {
+        return Promise.resolve(entry.pathHandler.handler(req, server));
+      }
+
+      const methodHandler = entry?.methodHandlers.get(req.method.toUpperCase());
+      if (methodHandler) {
+        return Promise.resolve(methodHandler.handler(req, server));
+      }
+
+      return Promise.resolve(
+        createMethodNotAllowedResponse(
+          entry ?? {
+            methodHandlers: new Map(),
+          }
+        )
+      );
+    };
+  }
+
+  if (method === undefined) {
+    if (entry.pathHandler || entry.methodHandlers.size > 0) {
+      throw new Error(`Route "${path}" is already registered (${source})`);
+    }
+
+    entry.pathHandler = {
+      handler,
+      source,
+    };
+    return;
+  }
+
+  if (entry.pathHandler) {
     throw new Error(`Route "${path}" is already registered (${source})`);
   }
 
-  routes[path] = async (req: BunRequest<string>, server: Server<unknown>) =>
-    Promise.resolve(handler(req, server));
+  if (entry.methodHandlers.has(method)) {
+    throw new Error(
+      `Route "${method} ${path}" is already registered (${source})`
+    );
+  }
+
+  entry.methodHandlers.set(method, {
+    handler,
+    source,
+  });
 }
 
 export function buildHttpRoutes<
@@ -60,11 +127,10 @@ export function buildHttpRoutes<
   const { prefix = "/api", formatInternalServerError } = options;
   const procedureInfos = collectProcedures(router).map(
     ({ path, procedure }) => {
-      const fullPath = `${prefix}/${path}`;
+      const resolvedRoute = resolveProcedureHttpRoute(prefix, path, procedure);
 
       return {
-        path,
-        fullPath,
+        ...resolvedRoute,
         procedure,
         httpExposed:
           procedure._httpExposed !== false &&
@@ -75,7 +141,8 @@ export function buildHttpRoutes<
 
             return plugin.includeProcedureInHttpRoutes({
               path,
-              fullPath,
+              fullPath: resolvedRoute.fullPath,
+              httpMethod: resolvedRoute.httpMethod,
               procedure,
               httpExposed: true,
               inputSchema: procedure.inputSchema,
@@ -92,6 +159,7 @@ export function buildHttpRoutes<
     string,
     (req: BunRequest<string>, server: Server<unknown>) => Promise<Response>
   > = {};
+  const registeredRoutes = new Map<string, RegisteredRouteEntry>();
 
   for (const procedureInfo of procedureInfos) {
     if (!procedureInfo.httpExposed) {
@@ -100,15 +168,21 @@ export function buildHttpRoutes<
 
     registerRoute(
       routes,
+      registeredRoutes,
       procedureInfo.fullPath,
       async (req: BunRequest<string>, server: Server<unknown>) => {
-        if (req.method !== "POST") {
+        if (req.method.toUpperCase() !== procedureInfo.httpMethod) {
           const error = createSystemError(
             "METHOD_NOT_ALLOWED",
             405,
-            "Method not allowed, use POST"
+            `Method not allowed, use ${procedureInfo.httpMethod}`
           );
-          return Response.json(error, { status: error.status });
+          return Response.json(error, {
+            status: error.status,
+            headers: {
+              Allow: procedureInfo.httpMethod,
+            },
+          });
         }
 
         const result = await executeProcedure({
@@ -129,7 +203,8 @@ export function buildHttpRoutes<
 
         return Response.json(result.data);
       },
-      `rpc procedure ${procedureInfo.fullPath}`
+      `rpc procedure ${procedureInfo.httpMethod} ${procedureInfo.fullPath}`,
+      procedureInfo.httpMethod
     );
   }
 
@@ -159,7 +234,13 @@ export function buildHttpRoutes<
 
     if (setupResult?.routes) {
       for (const [path, handler] of Object.entries(setupResult.routes)) {
-        registerRoute(routes, path, handler, `plugin ${plugin.name}`);
+        registerRoute(
+          routes,
+          registeredRoutes,
+          path,
+          handler,
+          `plugin ${plugin.name}`
+        );
       }
     }
 
