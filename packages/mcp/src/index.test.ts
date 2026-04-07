@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  AnyBunRPCPlugin,
   BunRPCRouteHandler,
   InferClient,
   StandardSchemaV1,
@@ -218,6 +219,17 @@ async function initializeSession(
 }
 
 describe("@bunrpc/mcp", () => {
+  test("is assignable to AnyBunRPCPlugin with typed auth options", () => {
+    const plugin: AnyBunRPCPlugin = mcp({
+      auth: {
+        type: "header",
+        validate: () => ({ tokenSource: "demo" }),
+      },
+    });
+
+    expect(plugin.name).toBe("mcp");
+  });
+
   test("lists tools, generates snake_case names, and injects typed header auth context", async () => {
     const b = initBunRpc().use(
       mcp({

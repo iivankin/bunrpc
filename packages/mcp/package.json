@@ -1,6 +1,6 @@
 {
   "name": "@bunrpc/mcp",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "MCP plugin for @bunrpc/core",
   "license": "Apache-2.0",
   "repository": {

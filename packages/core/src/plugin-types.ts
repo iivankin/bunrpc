@@ -29,26 +29,23 @@ export interface BunRPCPlugin<
   THandlerMethods extends object = Record<string, never>,
 > {
   handlerMethods?: THandlerMethods;
-  includeProcedureInHttpRoutes?: (
+  includeProcedureInHttpRoutes?(
     procedure: BunRPCPluginProcedureInfo<TProcedureMeta>
-  ) => boolean;
+  ): boolean;
   methods?: TMethods;
   name: TName;
   options: TOptions;
-  setup?: (
+  setup?(
     ctx: BunRPCPluginSetupContext<TProcedureMeta, TOptions>
-  ) => BunRPCPluginSetupResult<TExtension> | undefined;
+  ): BunRPCPluginSetupResult<TExtension> | undefined;
 }
 
 export type AnyBunRPCPlugin = BunRPCPlugin<
   string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  any,
+  unknown,
   object,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  any,
+  object,
+  unknown,
   Record<string, unknown>,
   string,
   object
