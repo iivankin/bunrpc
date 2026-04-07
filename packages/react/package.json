@@ -34,7 +34,7 @@
     "prepublishOnly": "bun run typecheck && bun run test"
   },
   "dependencies": {
-    "@bunrpc/core": "0.1.12"
+    "@bunrpc/core": "workspace:*"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5",

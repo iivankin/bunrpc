@@ -73,11 +73,12 @@ jobs:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-react:
-    needs: [changes, test]
+    needs: [changes, test, publish-core]
     if: |
       github.event_name == 'push'
       && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
       && needs.changes.outputs.react == 'true'
+      && (needs.changes.outputs.core != 'true' || needs.publish-core.result == 'success')
     runs-on: ubuntu-latest
 
     permissions:
@@ -99,11 +100,12 @@ jobs:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-openapi:
-    needs: [changes, test]
+    needs: [changes, test, publish-core]
     if: |
       github.event_name == 'push'
       && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
       && needs.changes.outputs.openapi == 'true'
+      && (needs.changes.outputs.core != 'true' || needs.publish-core.result == 'success')
     runs-on: ubuntu-latest
 
     permissions:
@@ -125,11 +127,12 @@ jobs:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-mcp:
-    needs: [changes, test]
+    needs: [changes, test, publish-core]
     if: |
       github.event_name == 'push'
       && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
       && needs.changes.outputs.mcp == 'true'
+      && (needs.changes.outputs.core != 'true' || needs.publish-core.result == 'success')
     runs-on: ubuntu-latest
 
     permissions:
