@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.16
+
+- Publish a registry-compatible `@bunrpc/core` dependency instead of the
+  source-only `workspace:*` specifier.
+
 ## 0.1.15
 
 - Keep the wrapped `mutate` and `mutateAsync` references stable across React

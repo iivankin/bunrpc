@@ -60,7 +60,7 @@
     },
     "packages/react": {
       "name": "@bunrpc/react",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "@bunrpc/core": "workspace:*",
       },

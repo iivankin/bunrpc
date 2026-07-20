@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { stagePackage } from "../../../scripts/stage-package";
 
 interface BunLock {
   workspaces: Record<
@@ -12,6 +13,8 @@ interface BunLock {
 
 interface PackageJson {
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
   version: string;
 }
 
@@ -51,5 +54,24 @@ describe("publish metadata", () => {
 
       expect(packageJson.dependencies?.["@bunrpc/core"]).toBe("workspace:*");
     }
+  });
+
+  test("staged packages replace workspace links with registry versions", async () => {
+    const root = new URL("../../../", import.meta.url);
+    const corePackage = await readPackageJson(
+      new URL("packages/core/package.json", root).pathname
+    );
+    const destination = await stagePackage("react");
+    const releasePackage = await readPackageJson(`${destination}/package.json`);
+
+    expect(releasePackage.dependencies?.["@bunrpc/core"]).toBe(
+      corePackage.version
+    );
+    expect(releasePackage.devDependencies).toBeUndefined();
+    expect(releasePackage.scripts).toBeUndefined();
+    expect(await Bun.file(`${destination}/src/index.ts`).exists()).toBe(true);
+    expect(await Bun.file(`${destination}/src/index.test.ts`).exists()).toBe(
+      false
+    );
   });
 });

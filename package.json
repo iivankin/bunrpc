@@ -20,6 +20,7 @@
     "check": "ultracite check",
     "typecheck": "bun run --parallel --filter '*' --if-present typecheck",
     "test": "bun run --parallel --filter '*' --if-present test",
+    "stage:package": "bun ./scripts/stage-package.ts",
     "prepare": "lefthook install --reset-hooks-path"
   },
   "devDependencies": {
