@@ -17,6 +17,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useCallback } from "react";
 import type {
   InferQueryClient,
   InfiniteQueryOptions,
@@ -102,6 +103,7 @@ export function createQueryClient<TRouter extends QueryClientRouter>(
   }
 
   function createProxy(pathParts: string[]): unknown {
+    const childProxies = new Map<string, unknown>();
     const hooks = {
       useQuery: (
         inputOrOptions?: unknown,
@@ -161,9 +163,8 @@ export function createQueryClient<TRouter extends QueryClientRouter>(
             : undefined,
         });
 
-        return {
-          ...mutation,
-          mutate: (
+        const mutate = useCallback(
+          (
             input: unknown,
             mutationCallOptions?: MutationCallOptions<
               unknown,
@@ -179,7 +180,10 @@ export function createQueryClient<TRouter extends QueryClientRouter>(
               mutateOptions
             );
           },
-          mutateAsync: (
+          [mutation.mutate]
+        );
+        const mutateAsync = useCallback(
+          (
             input: unknown,
             mutationCallOptions?: MutationCallOptions<
               unknown,
@@ -195,6 +199,13 @@ export function createQueryClient<TRouter extends QueryClientRouter>(
               mutateOptions
             );
           },
+          [mutation.mutateAsync]
+        );
+
+        return {
+          ...mutation,
+          mutate,
+          mutateAsync,
           variables: mutation.variables?.input,
         };
       },
@@ -232,7 +243,14 @@ export function createQueryClient<TRouter extends QueryClientRouter>(
           return target[prop as keyof typeof target];
         }
 
-        return createProxy([...pathParts, prop]);
+        const cached = childProxies.get(prop);
+        if (cached) {
+          return cached;
+        }
+
+        const child = createProxy([...pathParts, prop]);
+        childProxies.set(prop, child);
+        return child;
       },
     });
   }

@@ -18,6 +18,23 @@ test("exports react helpers", () => {
   expect(typeof useRpcUtils).toBe("function");
 });
 
+test("query client keeps route proxies and inputless query keys stable", () => {
+  type ListProcedure = Procedure<
+    Record<string, never>,
+    undefined,
+    { items: string[] },
+    never
+  >;
+  const rpc = createQueryClient<{
+    chat: { list: ListProcedure };
+  }>();
+
+  expect(rpc.chat).toBe(rpc.chat);
+  expect(rpc.chat.list).toBe(rpc.chat.list);
+  expect(rpc.chat.list.getQueryKey).toBe(rpc.chat.list.getQueryKey);
+  expect(rpc.chat.list.getQueryKey()).toBe(rpc.chat.list.getQueryKey());
+});
+
 test("query client exposes useInfiniteQuery helper", () => {
   type CursorProcedure = Procedure<
     Record<string, never>,

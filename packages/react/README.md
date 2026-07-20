@@ -35,6 +35,10 @@ function Screen() {
 
 TanStack Query cancellation is forwarded to the underlying `fetch` via `AbortSignal` for `useQuery` and `useInfiniteQuery`.
 
+Route proxies, inputless query keys, and observer methods such as `refetch` keep
+stable references. Query result objects themselves follow TanStack Query and
+may change between renders; depend on the specific result fields you consume.
+
 Mutations support per-call request options through the wrapped mutation helpers:
 
 ```ts
@@ -51,6 +55,9 @@ mutation.mutate(
   }
 );
 ```
+
+The wrapped `mutate` and `mutateAsync` functions keep stable references across
+rerenders, matching TanStack Query's mutation helpers.
 
 `createQueryClient` forwards `log` to `@bunrpc/core/createClient`, so development request/response traces are enabled by default outside production.
 ## Infinite queries
