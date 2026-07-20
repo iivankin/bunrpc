@@ -7,3 +7,4 @@
 - Cache route proxies so procedure helpers and inputless query keys retain
   stable references.
 - Verify that consumer rerenders do not cause duplicate query requests.
+- Publish releases through npm trusted publishing with provenance.
