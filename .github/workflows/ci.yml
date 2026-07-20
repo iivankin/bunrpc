@@ -75,7 +75,8 @@ jobs:
   publish-react:
     needs: [changes, test, publish-core]
     if: |
-      github.event_name == 'push'
+      always()
+      && github.event_name == 'push'
       && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
       && needs.changes.outputs.react == 'true'
       && (needs.changes.outputs.core != 'true' || needs.publish-core.result == 'success')
@@ -102,7 +103,8 @@ jobs:
   publish-openapi:
     needs: [changes, test, publish-core]
     if: |
-      github.event_name == 'push'
+      always()
+      && github.event_name == 'push'
       && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
       && needs.changes.outputs.openapi == 'true'
       && (needs.changes.outputs.core != 'true' || needs.publish-core.result == 'success')
@@ -129,7 +131,8 @@ jobs:
   publish-mcp:
     needs: [changes, test, publish-core]
     if: |
-      github.event_name == 'push'
+      always()
+      && github.event_name == 'push'
       && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
       && needs.changes.outputs.mcp == 'true'
       && (needs.changes.outputs.core != 'true' || needs.publish-core.result == 'success')
