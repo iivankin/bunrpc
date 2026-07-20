@@ -25,12 +25,16 @@ jobs:
           filters: |
             core:
               - 'packages/core/**'
+              - '!packages/core/**/*.test.ts'
             mcp:
               - 'packages/mcp/**'
+              - '!packages/mcp/**/*.test.ts'
             openapi:
               - 'packages/openapi/**'
+              - '!packages/openapi/**/*.test.ts'
             react:
               - 'packages/react/**'
+              - '!packages/react/**/*.test.ts'
 
   test:
     runs-on: ubuntu-latest
