@@ -4,7 +4,7 @@
 
 - Publish a registry-compatible `@bunrpc/core` dependency instead of the
   source-only `workspace:*` specifier.
-- Stage and validate the release artifact before publishing it to npm.
+- Stage and validate the release artifact before npm trusted publishing.
 
 ## 0.1.15
 
